@@ -128,6 +128,7 @@ export interface ZentionApi {
   exportPdf(input: { title: string; html: string }): Promise<Result<{ canceled: boolean; file?: string }>>
   pathForFile(file: File): string
   readMarkdown(filePath: string): Promise<Result<{ path: string; name: string; body: string }>>
+  importMarkdown(filePath: string): Promise<Result<{ page: PageData }>>
   saveMarkdown(input: { path: string; body: string }): Promise<Result<{ path: string; name: string }>>
   saveMarkdownAs(input: { body: string; suggestedName: string }): Promise<Result<{ canceled: boolean; path?: string; name?: string }>>
   saveExternalImage(payload: { base64: string; ext: string }): Promise<Result<{ path: string }>>

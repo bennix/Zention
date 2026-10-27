@@ -9,7 +9,7 @@ import { currentLocale } from './store'
 import { createAndSync, foldRemoteCopies, linkAndSync, loginWithGhCli, loginWithToken, logoutGitHub, syncWorkspace } from './github'
 import { ensureGh, watchGhSetup } from './ghEnv'
 import { exportMarkdown, exportPdf } from './export'
-import { decodeExternalToken, readExternalMarkdown, resolveExternalImage, saveExternalAs, saveExternalImage, writeExternalMarkdown } from './external'
+import { decodeExternalToken, importMarkdownPage, readExternalMarkdown, resolveExternalImage, saveExternalAs, saveExternalImage, writeExternalMarkdown } from './external'
 import {
   createPage,
   deletePage,
@@ -199,6 +199,7 @@ function registerIpc(): void {
     }),
   )
   ipcMain.handle('markdown:read', (_event, filePath: string) => guard(() => readExternalMarkdown(filePath)))
+  ipcMain.handle('markdown:import', (_event, filePath: string) => guard(async () => ({ page: await importMarkdownPage(filePath) })))
   ipcMain.handle('markdown:save', (_event, input: { path: string; body: string }) =>
     guard(() => writeExternalMarkdown(input.path, input.body)),
   )

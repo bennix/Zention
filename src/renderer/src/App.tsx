@@ -40,6 +40,7 @@ export default function App() {
   const saveExternalRef = useRef<() => void>(() => {})
   const saveAsRef = useRef<() => void>(() => {})
   const openMarkdownRef = useRef<(filePath: string) => void>(() => {})
+  const importDroppedRef = useRef<(filePath: string) => void>(() => {})
   const dragDepth = useRef(0)
   const openingRef = useRef('')
   const { t, locale } = useI18n()
@@ -143,7 +144,7 @@ export default function App() {
         notify(t('notMarkdown'))
         return
       }
-      openMarkdownRef.current(filePath)
+      importDroppedRef.current(filePath)
     }
     window.addEventListener('dragenter', enter, true)
     window.addEventListener('dragover', over, true)
@@ -344,8 +345,33 @@ export default function App() {
     notify(t('savedAs'))
   }
 
+  const importDropped = async (filePath: string) => {
+    if (openingRef.current === filePath) return
+    if (externalRef.current?.dirty && !window.confirm(t('externalDirty'))) return
+    openingRef.current = filePath
+    try {
+      const result = await window.zention.importMarkdown(filePath)
+      if (!result.ok) {
+        notify(result.error)
+        return
+      }
+      setExternalImages(false)
+      setExternal(null)
+      setPages((current) => [result.page, ...current.filter((item) => item.id !== result.page.id)])
+      setPage(result.page)
+      setTitle(result.page.title)
+      localStorage.setItem('zention.page', result.page.id)
+      notify(t('importedPage'))
+    } finally {
+      if (openingRef.current === filePath) openingRef.current = ''
+    }
+  }
+
   openMarkdownRef.current = (filePath) => {
     void openMarkdownFile(filePath)
+  }
+  importDroppedRef.current = (filePath) => {
+    void importDropped(filePath)
   }
   saveExternalRef.current = () => {
     void saveExternalFile()

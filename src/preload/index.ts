@@ -49,6 +49,7 @@ const api: ZentionApi = {
   exportPdf: (input) => ipcRenderer.invoke('export:pdf', input),
   pathForFile: (file) => webUtils.getPathForFile(file),
   readMarkdown: (filePath) => ipcRenderer.invoke('markdown:read', filePath),
+  importMarkdown: (filePath) => ipcRenderer.invoke('markdown:import', filePath),
   saveMarkdown: (input) => ipcRenderer.invoke('markdown:save', input),
   saveMarkdownAs: (input) => ipcRenderer.invoke('markdown:save-as', input),
   saveExternalImage: (payload) => ipcRenderer.invoke('markdown:image', payload),
