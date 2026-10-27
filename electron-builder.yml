@@ -1,0 +1,57 @@
+appId: com.bennix.zention
+productName: Zention
+copyright: Copyright © 2026 ZHIPING XU
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  - node_modules/katex/**/*
+extraResources:
+  - from: resources/icon.png
+    to: resources/icon.png
+  - from: resources/icon.ico
+    to: resources/icon.ico
+mac:
+  category: public.app-category.productivity
+  icon: icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  target:
+    - target: dmg
+      arch:
+        - universal
+  artifactName: Zention-${version}-mac.${ext}
+dmg:
+  title: Zention ${version}
+win:
+  icon: icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Zention-${version}-win.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+linux:
+  icon: icon.png
+  category: Office
+  maintainer: bennix <zpxu@fudan.edu.cn>
+  synopsis: Local notes with formulas, images, and GitHub sync
+  target:
+    - target: deb
+      arch:
+        - x64
+        - arm64
+    - target: rpm
+      arch:
+        - x64
+        - arm64
+  artifactName: Zention-${version}-linux-${arch}.${ext}

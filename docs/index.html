@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zention — 一页纸，写到可以同步</title>
+  <meta name="description" content="Zention 是本地笔记。公式、图片和 Markdown 留在你的电脑上，需要时再和 GitHub 对齐。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='48' y='48' width='928' height='928' rx='212' fill='%230F7B6C'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,680&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --desk: #d8cfc0;
+      --paper: #f7f4ee;
+      --ink: #24312d;
+      --muted: #6e756f;
+      --teal: #0f7b6c;
+      --rule: #8fa79c;
+      --fold: #e4dcce;
+      --shadow: 0 30px 70px rgba(55, 46, 32, 0.18);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 10%, rgba(255, 252, 245, 0.7), transparent 36%),
+        linear-gradient(160deg, #e7dfd2, var(--desk) 42%, #cfc4b2);
+      font-family: "Noto Serif SC", "Songti SC", "Iowan Old Style", Palatino, serif;
+    }
+    .desk { max-width: 1120px; margin: 0 auto; padding: 36px 28px 72px; }
+    header { display: flex; align-items: center; gap: 14px; }
+    .mark { width: 42px; height: 42px; }
+    .word { font-family: Fraunces, "Iowan Old Style", serif; font-size: 22px; letter-spacing: -0.04em; }
+    header a { margin-left: auto; color: var(--teal); text-decoration: none; border-bottom: 1px solid transparent; }
+    header a:hover { border-bottom-color: var(--teal); }
+    main { display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(300px, 1.1fr); gap: 64px; align-items: center; margin-top: 54px; }
+    .sheet {
+      position: relative;
+      min-height: 460px;
+      padding: 54px 46px 40px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      transform: rotate(-1.6deg);
+      animation: settle 900ms cubic-bezier(.2,.7,.2,1) both;
+    }
+    .sheet::before {
+      content: "";
+      position: absolute;
+      top: 0; right: 0;
+      border-top: 72px solid var(--desk);
+      border-left: 72px solid var(--fold);
+      filter: drop-shadow(-8px 8px 0 rgba(36, 49, 45, 0.04));
+    }
+    .kicker { margin: 0 0 18px; letter-spacing: 0.22em; font-size: 12px; color: var(--teal); }
+    h1 { margin: 0; font-weight: 700; font-size: clamp(40px, 5vw, 68px); line-height: 1.12; letter-spacing: -0.04em; }
+    .lede { font-size: 18px; line-height: 1.7; color: var(--muted); max-width: 36em; }
+    .lines { margin-top: 54px; display: grid; gap: 16px; }
+    .lines i { display: block; height: 12px; border-radius: 999px; background: var(--rule); }
+    .lines i:nth-child(1) { width: 78%; }
+    .lines i:nth-child(2) { width: 64%; }
+    .lines i:nth-child(3) { width: 48%; }
+    .formula { margin-top: 36px; font-family: Fraunces, serif; font-style: italic; color: var(--teal); font-size: 28px; }
+    .downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .downloads a {
+      display: inline-flex; flex-direction: column; gap: 2px;
+      min-width: 148px; padding: 12px 16px;
+      color: white; background: var(--teal); text-decoration: none;
+      border-radius: 14px;
+    }
+    .downloads a small { color: rgba(255,255,255,0.78); font-size: 12px; }
+    .downloads a.quiet { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px rgba(36, 49, 45, 0.25); }
+    .downloads a.quiet small { color: var(--muted); }
+    .note { margin-top: 22px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+    @keyframes settle { from { opacity: 0; transform: translateY(18px) rotate(-4deg); } to { opacity: 1; transform: translateY(0) rotate(-1.6deg); } }
+    @media (max-width: 860px) {
+      main { grid-template-columns: 1fr; gap: 28px; }
+      .sheet { min-height: 0; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="desk">
+    <header>
+      <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true">
+        <rect x="48" y="48" width="928" height="928" rx="212" fill="#0F7B6C"/>
+        <path fill="#F7F4EE" d="M292 268h332l128 128v392c0 28-22 50-50 50H342c-28 0-50-22-50-50V318c0-28 22-50 50-50z"/>
+        <path fill="#E4DCCE" d="M624 268v92c0 20 16 36 36 36h92z"/>
+        <rect x="392" y="478" width="292" height="22" rx="11" fill="#8FA79C"/>
+        <rect x="392" y="548" width="248" height="22" rx="11" fill="#8FA79C"/>
+        <rect x="392" y="618" width="210" height="22" rx="11" fill="#8FA79C"/>
+      </svg>
+      <div class="word">Zention</div>
+      <a href="https://github.com/bennix/Zention">源码</a>
+    </header>
+    <main>
+      <section class="sheet" aria-hidden="true">
+        <div class="lines">
+          <i></i><i></i><i></i>
+        </div>
+        <div class="formula">E = mc²</div>
+      </section>
+      <section>
+        <p class="kicker">本地笔记</p>
+        <h1>一页纸，<br>写到可以同步。</h1>
+        <p class="lede">公式、图片和 Markdown 留在你的电脑上。拖进一份文稿就能改，保存写回原文件。需要的时候，再和 GitHub 对齐。</p>
+        <div class="downloads">
+          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.0-mac.dmg">macOS<small>已公证 DMG</small></a>
+          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.0-win.exe">Windows<small>64 位安装包</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.0-linux-amd64.deb">Linux DEB<small>x64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.0-linux-arm64.deb">Linux DEB<small>arm64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.0-linux-x86_64.rpm">Linux RPM<small>x64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.0-linux-aarch64.rpm">Linux RPM<small>arm64</small></a>
+        </div>
+        <p class="note">macOS 安装包使用 Developer ID 签名，并经过 Apple 公证。笔记默认只在本机，GitHub 同步需要你自己登录。</p>
+      </section>
+    </main>
+    <footer>Zention 0.1.0 · <a href="https://github.com/bennix/Zention/releases/latest">全部下载</a></footer>
+  </div>
+</body>
+</html>

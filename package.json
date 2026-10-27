@@ -1,0 +1,50 @@
+{
+  "name": "zention",
+  "version": "0.1.0",
+  "private": true,
+  "author": "ZHIPING XU",
+  "homepage": "https://github.com/bennix/Zention",
+  "description": "Local notes with formulas, images, and GitHub sync",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "dist": "electron-vite build && electron-builder --mac --win --linux"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.32.0",
+    "@tiptap/extension-code-block": "3.32.0",
+    "@tiptap/extension-image": "3.32.0",
+    "@tiptap/extension-list": "3.32.0",
+    "@tiptap/extension-table": "3.32.0",
+    "@tiptap/extensions": "3.32.0",
+    "@tiptap/markdown": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/react": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
+    "@tiptap/suggestion": "3.32.0",
+    "https-proxy-agent": "^9.1.0",
+    "katex": "^0.16.22",
+    "mermaid": "^11.12.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "socks-proxy-agent": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "electron": "^35.7.5",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  },
+  "overrides": {
+    "@tiptap/core": "3.32.0",
+    "@tiptap/pm": "3.32.0"
+  }
+}
