@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  rpm:
+  linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -16,13 +16,15 @@ jobs:
       - run: npm ci
       - run: npx electron-vite build
       - run: sudo apt-get update && sudo apt-get install -y rpm fakeroot
-      - run: npx electron-builder --linux rpm --x64 --arm64 --publish never
+      - run: npx electron-builder --linux deb rpm --x64 --arm64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
-          name: rpm
-          path: dist/*.rpm
+          name: linux
+          path: |
+            dist/*.deb
+            dist/*.rpm
           if-no-files-found: error
 
   windows:

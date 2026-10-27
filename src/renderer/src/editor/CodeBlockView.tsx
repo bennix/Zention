@@ -30,10 +30,13 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
   useEffect(() => {
     if (!isMermaid || editing || !node.textContent.trim()) return
     let cancelled = false
+    // mermaid.render removes any node that already uses this id. Reusing the id
+    // deletes the picture on screen, and an identical SVG string does not make React draw it again.
+    const diagramId = `zention-mermaid-${renderId}-${crypto.randomUUID()}`
     void import('mermaid').then(async ({ default: mermaid }) => {
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'neutral' })
       try {
-        const result = await mermaid.render(`zention-mermaid-${renderId}`, node.textContent)
+        const result = await mermaid.render(diagramId, node.textContent)
         if (!cancelled) {
           setDiagram(result.svg)
           setRenderError('')
