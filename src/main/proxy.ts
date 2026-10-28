@@ -51,8 +51,9 @@ function envProxyUrl(protocol: string): string | null {
 }
 
 function agentFor(proxyUrl: string): Agent {
-  if (new URL(proxyUrl).protocol.startsWith('socks')) return new SocksProxyAgent(proxyUrl)
-  return new HttpsProxyAgent(proxyUrl)
+  const options = { keepAlive: false }
+  if (new URL(proxyUrl).protocol.startsWith('socks')) return new SocksProxyAgent(proxyUrl, options)
+  return new HttpsProxyAgent(proxyUrl, options)
 }
 
 export function normalizeProxyUrl(raw: string): string {

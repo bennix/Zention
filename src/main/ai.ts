@@ -46,80 +46,148 @@ function headerRecord(headers: Headers): Record<string, string> {
 
 let proxyPreference: string | undefined
 
+class TransientNetError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TransientNetError'
+  }
+}
+
+class RetryableDisconnect extends Error {
+  constructor(
+    readonly detail: string,
+    readonly via: string,
+  ) {
+    super(detail)
+    this.name = 'RetryableDisconnect'
+  }
+}
+
+function socketDropped(error: unknown): boolean {
+  const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code ?? '') : ''
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'ECONNABORTED'].includes(code) ||
+    /socket hang up|ECONNRESET/i.test(`${code} ${message}`)
+  )
+}
+
+function netFailure(detail: string, via: string): TransientNetError {
+  const text = detail ? msg('netFail', { detail }) : msg('netFailBare')
+  return new TransientNetError(via && via !== 'direct' ? `${text} (${via})` : text)
+}
+
+function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error(msg('netCancelled')))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', cancel)
+      resolve()
+    }, ms)
+    const cancel = () => {
+      clearTimeout(timer)
+      reject(new Error(msg('netCancelled')))
+    }
+    signal?.addEventListener('abort', cancel, { once: true })
+  })
+}
+
 async function zenmuxFetch(url: string, init: RequestInit = {}, onChunk?: (chunk: Buffer) => void): Promise<Response> {
   const headers = new Headers(init.headers)
   if (!headers.has('User-Agent')) headers.set('User-Agent', 'Zention')
+  if (!headers.has('Connection')) headers.set('Connection', 'close')
   const target = new URL(url)
   const payload =
     init.body == null ? undefined : Buffer.from(typeof init.body === 'string' ? init.body : String(init.body))
   if (payload && !headers.has('Content-Length')) headers.set('Content-Length', String(payload.length))
-  const secrets = await getSecrets()
-  const preference = proxyPreference !== undefined ? proxyPreference : secrets.proxy
-  const route = await proxyRouteFor(url, preference)
   const transport = target.protocol === 'http:' ? httpRequest : httpsRequest
-  const via = route.label
 
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let timedOut = false
-    const finish = (run: () => void) => {
-      if (settled) return
-      settled = true
-      run()
-    }
-    const fail = (error: unknown) =>
-      finish(() => {
-        if (timedOut) {
-          reject(new Error(msg('netTimeout')))
-          return
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const secrets = await getSecrets()
+    const preference = proxyPreference !== undefined ? proxyPreference : secrets.proxy
+    const route = await proxyRouteFor(url, preference)
+    try {
+      return await new Promise<Response>((resolve, reject) => {
+        let settled = false
+        let timedOut = false
+        let handed = false
+        const finish = (run: () => void) => {
+          if (settled) return
+          settled = true
+          run()
         }
-        const detail = fetchDetail(error)
-        const text = detail ? msg('netFail', { detail }) : msg('netFailBare')
-        reject(new Error(via && via !== 'direct' ? `${text} (${via})` : text))
+        const fail = (error: unknown) =>
+          finish(() => {
+            if (timedOut) {
+              reject(new Error(msg('netTimeout')))
+              return
+            }
+            const detail = fetchDetail(error)
+            if (!handed && socketDropped(error)) {
+              reject(new RetryableDisconnect(detail, route.label))
+              return
+            }
+            reject(netFailure(detail, route.label))
+          })
+        const req = transport(
+          {
+            protocol: target.protocol,
+            hostname: target.hostname,
+            port: target.port || undefined,
+            path: `${target.pathname}${target.search}`,
+            method: init.method || 'GET',
+            headers: headerRecord(headers),
+            agent: route.agent ?? false,
+          },
+          (res) => {
+            const chunks: Buffer[] = []
+            res.on('data', (chunk: Buffer) => {
+              chunks.push(chunk)
+              if (!onChunk) return
+              handed = true
+              onChunk(chunk)
+            })
+            res.on('end', () => {
+              const flat: Record<string, string> = {}
+              for (const [key, value] of Object.entries(res.headers)) {
+                if (value == null) continue
+                flat[key] = Array.isArray(value) ? value.join(', ') : value
+              }
+              finish(() => resolve(new Response(Buffer.concat(chunks), { status: res.statusCode ?? 0, headers: flat })))
+            })
+            res.on('error', fail)
+          },
+        )
+        req.setTimeout(180_000, () => {
+          timedOut = true
+          req.destroy()
+        })
+        req.on('error', fail)
+        init.signal?.addEventListener(
+          'abort',
+          () => {
+            req.destroy()
+            finish(() => reject(new Error(msg('netCancelled'))))
+          },
+          { once: true },
+        )
+        if (payload) req.write(payload)
+        req.end()
       })
-    const req = transport(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port || undefined,
-        path: `${target.pathname}${target.search}`,
-        method: init.method || 'GET',
-        headers: headerRecord(headers),
-        ...(route.agent ? { agent: route.agent } : {}),
-      },
-      (res) => {
-        const chunks: Buffer[] = []
-        res.on('data', (chunk: Buffer) => {
-          chunks.push(chunk)
-          onChunk?.(chunk)
-        })
-        res.on('end', () => {
-          const flat: Record<string, string> = {}
-          for (const [key, value] of Object.entries(res.headers)) {
-            if (value == null) continue
-            flat[key] = Array.isArray(value) ? value.join(', ') : value
-          }
-          finish(() => resolve(new Response(Buffer.concat(chunks), { status: res.statusCode ?? 0, headers: flat })))
-        })
-        res.on('error', fail)
-      },
-    )
-    req.setTimeout(180_000, () => {
-      timedOut = true
-      req.destroy()
-    })
-    req.on('error', fail)
-    init.signal?.addEventListener(
-      'abort',
-      () => {
-        req.destroy()
-        finish(() => reject(new Error(msg('netCancelled'))))
-      },
-      { once: true },
-    )
-    if (payload) req.write(payload)
-    req.end()
-  })
+    } catch (error) {
+      if (!(error instanceof RetryableDisconnect) || attempt === 2) {
+        if (error instanceof RetryableDisconnect) throw netFailure(error.detail, error.via)
+        throw error
+      }
+      await waitForRetry(400 * (attempt + 1), init.signal ?? undefined)
+    } finally {
+      route.agent?.destroy()
+    }
+  }
+  throw netFailure('', 'direct')
 }
 
 async function readBody(response: Response): Promise<{ json: any; text: string }> {
@@ -433,10 +501,11 @@ export async function generateAndStoreImage(input: {
   try {
     image = await generateViaVertex(secrets.apiKey, model, prompt, input.aspectRatio)
   } catch (vertexError) {
-    if (model.startsWith('google/')) throw vertexError
+    if (model.startsWith('google/') || vertexError instanceof TransientNetError) throw vertexError
     try {
       image = await generateViaOpenAiImages(secrets.apiKey, secrets.baseUrl, model, prompt, input.aspectRatio)
     } catch (fallbackError) {
+      if (fallbackError instanceof TransientNetError) throw fallbackError
       throw new Error(msg('errFallback', { first: errorMessage(vertexError), second: errorMessage(fallbackError) }))
     }
   }
@@ -507,11 +576,12 @@ async function testImage(apiKey: string, baseUrl: string, model: string): Promis
     const image = await generateViaVertex(apiKey, model, prompt, '1:1')
     if (!image.base64 && !image.url) throw new Error(msg('errNoPicture'))
   } catch (vertexError) {
-    if (model.startsWith('google/') || /401|403/.test(errorMessage(vertexError))) throw vertexError
+    if (model.startsWith('google/') || vertexError instanceof TransientNetError || /401|403/.test(errorMessage(vertexError))) throw vertexError
     try {
       const image = await generateViaOpenAiImages(apiKey, baseUrl, model, prompt, '1:1')
       if (!image.base64 && !image.url) throw new Error(msg('errNoPicture'))
     } catch (fallbackError) {
+      if (fallbackError instanceof TransientNetError) throw fallbackError
       throw new Error(msg('errFallback', { first: errorMessage(vertexError), second: errorMessage(fallbackError) }))
     }
   }
