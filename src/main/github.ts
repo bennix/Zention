@@ -18,6 +18,7 @@ import {
   viewSettings,
 } from './store'
 import { mergeText } from './merge'
+import { zenmuxFetch } from './ai'
 import { translate, type MessageKey } from '../shared/i18n'
 import { ensureGh } from './ghEnv'
 import { currentLocale } from './store'
@@ -44,17 +45,23 @@ interface GhResponse {
 }
 
 async function gh(token: string, pathname: string, init: RequestInit = {}): Promise<any> {
-  const response = await fetch(`https://api.github.com${pathname}`, {
-    ...init,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'User-Agent': 'Zention',
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init.headers,
+  const response = await zenmuxFetch(
+    `https://api.github.com${pathname}`,
+    {
+      ...init,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'User-Agent': 'Zention',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init.headers,
+      },
     },
-  })
+    undefined,
+    undefined,
+    { transport: 'node', timeoutMs: 60_000 },
+  )
   const text = await response.text()
   let data: any = null
   if (text) {

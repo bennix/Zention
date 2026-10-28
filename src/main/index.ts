@@ -49,7 +49,13 @@ app.setPath('userData', path.join(app.getPath('appData'), 'Zention'))
 let mainWindow: BrowserWindow | null = null
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  if (!(error instanceof Error)) return String(error)
+  if (error.message !== 'fetch failed') return error.message
+  const cause = error.cause
+  const code = cause && typeof cause === 'object' && 'code' in cause ? String((cause as { code?: unknown }).code ?? '') : ''
+  const nested = cause instanceof Error ? cause.message : ''
+  const detail = [code, nested].filter((part) => part && part !== 'fetch failed').join(' ')
+  return detail ? translate(currentLocale(), 'netFail', { detail }) : translate(currentLocale(), 'netFailBare')
 }
 
 async function guard<T extends Record<string, unknown>>(fn: () => Promise<T>): Promise<Result<T>> {

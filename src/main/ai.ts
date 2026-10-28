@@ -136,11 +136,14 @@ export async function zenmuxFetch(
   init: RequestInit = {},
   onChunk?: (chunk: Buffer) => void,
   onDiscard?: () => void,
+  routeHint?: { transport?: 'node'; timeoutMs?: number },
 ): Promise<Response> {
   const headers = new Headers(init.headers)
   if (!headers.has('User-Agent')) headers.set('User-Agent', 'Zention')
   const payload =
     init.body == null ? undefined : Buffer.from(typeof init.body === 'string' ? init.body : String(init.body))
+  const timeoutMs = routeHint?.timeoutMs ?? 180_000
+  const forceNode = routeHint?.transport === 'node'
 
   let skipChromium = false
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -148,11 +151,21 @@ export async function zenmuxFetch(
     const preference = proxyPreference !== undefined ? proxyPreference : secrets.proxy
     const explicit = typeof preference === 'string' ? preference.trim() : ''
     const route = explicit ? await proxyRouteFor(url, explicit) : { label: 'direct', agent: undefined }
-    const viaChromium = !skipChromium && (!explicit || attempt > 0)
+    const viaChromium = !forceNode && !skipChromium && (!explicit || attempt > 0)
     try {
       return await (viaChromium
         ? chromiumExchange(url, init.method || 'GET', headers, payload, init.signal ?? undefined, onChunk)
-        : nodeExchange(url, init.method || 'GET', headers, payload, route.agent, init.signal ?? undefined, onChunk))
+        : nodeExchange(
+            url,
+            init.method || 'GET',
+            headers,
+            payload,
+            route.agent,
+            init.signal ?? undefined,
+            onChunk,
+            timeoutMs,
+            forceNode,
+          ))
     } catch (error) {
       if (error instanceof RetryableDisconnect && /ERR_INVALID_ARGUMENT/i.test(error.detail)) skipChromium = true
       if (!(error instanceof RetryableDisconnect) || attempt === 3) {
@@ -176,6 +189,8 @@ function nodeExchange(
   agent: import('node:http').Agent | undefined,
   signal: AbortSignal | undefined,
   onChunk?: (chunk: Buffer) => void,
+  timeoutMs = 180_000,
+  retryTimeout = false,
 ): Promise<Response> {
   const target = new URL(url)
   const sent = new Headers(headers)
@@ -186,10 +201,12 @@ function nodeExchange(
     let settled = false
     let timedOut = false
     let cancelled = false
+    let wall: ReturnType<typeof setTimeout> | undefined
     const chunks: Buffer[] = []
     const finish = (run: () => void) => {
       if (settled) return
       settled = true
+      if (wall) clearTimeout(wall)
       run()
     }
     const succeed = (status: number, responseHeaders: Record<string, string | string[] | undefined>) =>
@@ -201,7 +218,8 @@ function nodeExchange(
           return
         }
         if (timedOut) {
-          reject(new Error(msg('netTimeout')))
+          if (retryTimeout) reject(new RetryableDisconnect(msg('netTimeout'), 'direct'))
+          else reject(new Error(msg('netTimeout')))
           return
         }
         if (exchangeComplete(chunks)) {
@@ -249,7 +267,11 @@ function nodeExchange(
       socket.setKeepAlive(true, 10_000)
       socket.setNoDelay(true)
     })
-    req.setTimeout(180_000, () => {
+    wall = setTimeout(() => {
+      timedOut = true
+      req.destroy()
+    }, timeoutMs)
+    req.setTimeout(timeoutMs, () => {
       timedOut = true
       req.destroy()
     })
