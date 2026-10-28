@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PageData, PageMeta, SettingsPatch, SettingsView, SyncProgress } from '../../shared/types'
+import type { PageData, PageMeta, SettingsPatch, SettingsView, SyncProgress, UpdateStatus } from '../../shared/types'
 import { call } from './call'
 import { EditorPane, type EditorExport } from './components/EditorPane'
 import { GithubDialog, SyncProgressView } from './components/GithubDialog'
@@ -35,6 +35,7 @@ export default function App() {
   const exportHandle = useRef<EditorExport | null>(null)
   const [external, setExternal] = useState<ExternalDoc | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [update, setUpdate] = useState<UpdateStatus | null>(null)
   const externalRef = useRef<ExternalDoc | null>(null)
   externalRef.current = external
   const saveExternalRef = useRef<() => void>(() => {})
@@ -44,6 +45,8 @@ export default function App() {
   const dragDepth = useRef(0)
   const openingRef = useRef('')
   const { t, locale } = useI18n()
+
+  useEffect(() => window.zention.onUpdate(setUpdate), [])
 
   const notify = useCallback((message: string) => {
     setToast(message)
@@ -469,6 +472,22 @@ export default function App() {
         </div>
       </aside>
       <main>
+        {update ? (
+          <div className="banner update-banner">
+            {update.phase === 'downloaded'
+              ? t('updateReady', { version: update.version ?? '' })
+              : update.phase === 'progress'
+                ? t('updateProgress', { percent: update.percent ?? 0 })
+                : update.phase === 'error'
+                  ? t('updateError', { detail: update.message ?? '' })
+                  : t('updateAvailable', { version: update.version ?? '' })}
+            {update.phase === 'downloaded' ? (
+              <button type="button" onClick={() => void window.zention.installUpdate()}>
+                {t('updateRestart')}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {external || page ? (
           <>
             <div className="sheet">

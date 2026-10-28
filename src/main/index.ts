@@ -10,6 +10,7 @@ import { createAndSync, foldRemoteCopies, linkAndSync, loginWithGhCli, loginWith
 import { ensureGh, watchGhSetup } from './ghEnv'
 import { exportMarkdown, exportPdf } from './export'
 import { decodeExternalToken, importMarkdownPage, readExternalMarkdown, resolveExternalImage, saveExternalAs, saveExternalImage, writeExternalMarkdown } from './external'
+import { installDownloadedUpdate, setupAutoUpdate } from './update'
 import {
   createPage,
   deletePage,
@@ -107,6 +108,12 @@ function emitSyncProgress(progress: SyncProgress): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('update:install', () =>
+    guard(async () => {
+      installDownloadedUpdate()
+      return {}
+    }),
+  )
   ipcMain.handle('settings:get', () => guard(async () => ({ settings: await viewSettings() })))
   ipcMain.handle('settings:update', (_event, patch: SettingsPatch) =>
     guard(async () => ({ settings: await updateSettings(patch) })),
@@ -297,6 +304,7 @@ app.whenReady().then(async () => {
   })
   registerIpc()
   createWindow()
+  setupAutoUpdate()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

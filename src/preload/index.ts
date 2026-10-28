@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { SettingsPatch, SyncProgress, ZentionApi } from '../shared/types'
+import type { SettingsPatch, SyncProgress, UpdateStatus, ZentionApi } from '../shared/types'
 
 const api: ZentionApi = {
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -61,6 +61,12 @@ const api: ZentionApi = {
     return () => ipcRenderer.removeListener('markdown:open', listener)
   },
   takePendingMarkdown: () => ipcRenderer.invoke('markdown:pending'),
+  onUpdate: (callback: (status: UpdateStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => callback(status)
+    ipcRenderer.on('update:status', listener)
+    return () => ipcRenderer.removeListener('update:status', listener)
+  },
+  installUpdate: () => ipcRenderer.invoke('update:install'),
 }
 
 contextBridge.exposeInMainWorld('zention', api)

@@ -3,9 +3,18 @@ import { NodeViewContent, NodeViewWrapper } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/react'
 import { AttachmentBar, imageFiles, revokePromptImages, takePromptImages, type PromptImage } from '../components/Attachments'
 import { beginAiHistory, tagAiHistory } from './aiHistory'
-import { CODE_LANGUAGES, parseIndentedCode } from './codeHighlight'
+import { CODE_LANGUAGES, FLOW_LANGUAGES, isFlowchart, parseIndentedCode } from './codeHighlight'
 import { subscribeCodeIndent, takeCodeIndent } from './codeIndent'
 import { useI18n } from '../i18n'
+
+function convertSystem(language: string, flowchart: boolean): string {
+  const kind = flowchart ? 'Mermaid 流程图' : 'Mermaid 图'
+  return `你把${kind}转换成 ${language} 代码。只返回代码本身，不要 Markdown 围栏，不要解释。用这种语言的惯用写法表达图中的步骤、分支和循环。不要增删图里没有的步骤。图中的可见文字保持原样。`
+}
+
+function flowchartSystem(language: string): string {
+  return `你把 ${language} 代码转换成 Mermaid 流程图。只返回流程图源码，以 flowchart 开头，不要 Markdown 围栏，不要解释。用节点和箭头表达代码里的步骤、分支和循环。不要增删代码里没有的步骤。可见文字保持原样。`
+}
 
 function indentSystem(language: string | null): string {
   const rules = '不要增删语句，不要改标识符、字符串内容和注释文字。只把行首空白改成这种语言惯用的空格缩进。只返回代码本身，不要 Markdown 围栏，不要解释。'
@@ -18,6 +27,12 @@ function cleanMermaid(value: string): string {
   const fenced = source.match(/^```(?:mermaid)?\s*\n([\s\S]*?)\n```$/i)
   if (fenced?.[1]) source = fenced[1].trim()
   return source
+}
+
+function mermaidFlowchart(raw: string): string | null {
+  const match = cleanMermaid(raw).match(/(?:^|\n)[ \t]*((?:flowchart|graph)\b[\s\S]*)$/i)
+  const body = match?.[1]?.trim() ?? ''
+  return isFlowchart(body) ? body : null
 }
 
 export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
@@ -33,10 +48,15 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
   const [aiError, setAiError] = useState('')
   const [indentBusy, setIndentBusy] = useState(false)
   const [indentError, setIndentError] = useState('')
+  const [flowTarget, setFlowTarget] = useState<(typeof FLOW_LANGUAGES)[number]>('python')
+  const [convertBusy, setConvertBusy] = useState(false)
+  const [convertError, setConvertError] = useState('')
   const indenting = useRef(false)
+  const converting = useRef(false)
   const renderId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const language = String(node.attrs.language ?? '') || 'plaintext'
   const isMermaid = language === 'mermaid'
+  const canFlow = (FLOW_LANGUAGES as readonly string[]).includes(language)
 
   const formatIndent = useCallback(async () => {
     if (indenting.current) return
@@ -82,6 +102,79 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
       setIndentBusy(false)
     }
   }, [editor, getPos, language, node, t, updateAttributes])
+
+  const convertLanguage = useCallback(async () => {
+    if (converting.current || !isMermaid) return
+    const source = node.textContent
+    if (!source.trim()) return
+    const target = flowTarget
+    converting.current = true
+    setConvertBusy(true)
+    setConvertError('')
+    try {
+      const response = await window.zention.aiComplete({
+        system: convertSystem(target, isFlowchart(source)),
+        user: source,
+      })
+      if (!response.ok) {
+        setConvertError(response.error)
+        return
+      }
+      const parsed = parseIndentedCode(response.content, target)
+      const pos = typeof getPos === 'function' ? getPos() : undefined
+      const current = typeof pos === 'number' ? editor.state.doc.nodeAt(pos) : null
+      if (!parsed || typeof pos !== 'number' || !current || current.type.name !== 'codeBlock' || current.textContent !== source) {
+        setConvertError(t(parsed ? 'codeConvertMoved' : 'codeConvertEmpty'))
+        return
+      }
+      const composition = beginAiHistory()
+      const replacement = current.type.create(
+        { ...current.attrs, language: target },
+        editor.schema.text(parsed.code),
+      )
+      const tr = editor.state.tr.replaceWith(pos, pos + current.nodeSize, replacement)
+      tagAiHistory(tr, composition, true)
+      editor.view.dispatch(tr)
+    } finally {
+      converting.current = false
+      setConvertBusy(false)
+    }
+  }, [editor, flowTarget, getPos, isMermaid, node, t])
+
+  const convertToFlowchart = useCallback(async () => {
+    if (converting.current || !canFlow) return
+    const source = node.textContent
+    if (!source.trim()) return
+    converting.current = true
+    setConvertBusy(true)
+    setConvertError('')
+    try {
+      const response = await window.zention.aiComplete({
+        system: flowchartSystem(language),
+        user: source,
+      })
+      if (!response.ok) {
+        setConvertError(response.error)
+        return
+      }
+      const flowchart = mermaidFlowchart(response.content)
+      const pos = typeof getPos === 'function' ? getPos() : undefined
+      const current = typeof pos === 'number' ? editor.state.doc.nodeAt(pos) : null
+      if (!flowchart || typeof pos !== 'number' || !current || current.type.name !== 'codeBlock' || current.textContent !== source) {
+        setConvertError(t(flowchart ? 'codeConvertMoved' : 'codeConvertEmpty'))
+        return
+      }
+      const composition = beginAiHistory()
+      const replacement = current.type.create({ ...current.attrs, language: 'mermaid' }, editor.schema.text(flowchart))
+      const tr = editor.state.tr.replaceWith(pos, pos + current.nodeSize, replacement)
+      tagAiHistory(tr, composition, true)
+      editor.view.dispatch(tr)
+      setEditing(false)
+    } finally {
+      converting.current = false
+      setConvertBusy(false)
+    }
+  }, [canFlow, editor, getPos, language, node, t])
 
   useEffect(() => {
     const run = () => {
@@ -178,6 +271,25 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
             </option>
           ))}
         </select>
+        {isMermaid && (
+          <select value={flowTarget} disabled={convertBusy} onChange={(event) => setFlowTarget(event.target.value as (typeof FLOW_LANGUAGES)[number])}>
+            {FLOW_LANGUAGES.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        )}
+        {isMermaid && (
+          <button type="button" onClick={() => void convertLanguage()} disabled={convertBusy || !node.textContent.trim()}>
+            {convertBusy ? t('codeConverting') : t('codeConvert')}
+          </button>
+        )}
+        {canFlow && (
+          <button type="button" onClick={() => void convertToFlowchart()} disabled={convertBusy || !node.textContent.trim()}>
+            {convertBusy ? t('codeToFlowing') : t('codeToFlow')}
+          </button>
+        )}
         <button type="button" onClick={copy}>
           {copied ? t('codeCopied') : t('codeCopy')}
         </button>
@@ -255,9 +367,9 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
           {aiError ? <p className="error">{aiError}</p> : null}
         </div>
       )}
-      {indentError ? (
+      {indentError || convertError ? (
         <p className="error" contentEditable={false}>
-          {indentError}
+          {convertError || indentError}
         </p>
       ) : null}
       {isMermaid && !editing && (

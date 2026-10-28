@@ -25,6 +25,8 @@ jobs:
           path: |
             dist/*.deb
             dist/*.rpm
+            dist/*.AppImage
+            dist/latest-linux*.yml
           if-no-files-found: error
 
   windows:
@@ -44,5 +46,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/latest.yml
           if-no-files-found: error

@@ -1,6 +1,6 @@
 {
   "name": "zention",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "author": "ZHIPING XU",
   "homepage": "https://github.com/bennix/Zention",
@@ -26,6 +26,7 @@
     "@tiptap/react": "3.32.0",
     "@tiptap/starter-kit": "3.32.0",
     "@tiptap/suggestion": "3.32.0",
+    "electron-updater": "6.6.2",
     "https-proxy-agent": "^9.1.0",
     "katex": "^0.16.22",
     "lowlight": "^3.3.0",

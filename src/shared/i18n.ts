@@ -193,6 +193,12 @@ const zhCN = {
   codeIndenting: '正在规整缩进…',
   codeIndentEmpty: 'AI 没有返回整理后的代码',
   codeIndentMoved: '代码已变化，没有写入',
+  codeConvert: '切换语言',
+  codeConverting: '正在切换…',
+  codeConvertEmpty: 'AI 没有返回代码',
+  codeConvertMoved: '代码已变化，没有写入',
+  codeToFlow: '转为流程图',
+  codeToFlowing: '正在转为流程图…',
   codePreview: '预览',
   codeSource: '源码',
   mermaidAi: 'AI 修改',
@@ -287,6 +293,11 @@ const zhCN = {
   externalDirty: '这个文件还有未保存的修改。要放弃这些修改吗？',
   notMarkdown: '请拖入 Markdown 文件',
   notes: '笔记',
+  updateAvailable: '发现新版本 {version}，正在下载…',
+  updateProgress: '正在下载更新 {percent}%',
+  updateReady: '新版本 {version} 已下载',
+  updateRestart: '重启并升级',
+  updateError: '更新失败：{detail}',
 } as const
 
 export type MessageKey = keyof typeof zhCN
@@ -469,6 +480,12 @@ const en: Record<MessageKey, string> = {
   codeIndenting: 'Fixing indent…',
   codeIndentEmpty: 'The model did not return any code',
   codeIndentMoved: 'The code changed, so nothing was written',
+  codeConvert: 'Switch language',
+  codeConverting: 'Switching…',
+  codeConvertEmpty: 'The model did not return any code',
+  codeConvertMoved: 'The code changed, so nothing was written',
+  codeToFlow: 'To flowchart',
+  codeToFlowing: 'Converting to flowchart…',
   codePreview: 'Preview',
   codeSource: 'Source',
   mermaidAi: 'Edit with AI',
@@ -563,6 +580,11 @@ const en: Record<MessageKey, string> = {
   externalDirty: 'This file has unsaved changes. Discard them?',
   notMarkdown: 'Drop a Markdown file',
   notes: 'Notes',
+  updateAvailable: 'Version {version} is available and downloading…',
+  updateProgress: 'Downloading update {percent}%',
+  updateReady: 'Version {version} has been downloaded',
+  updateRestart: 'Restart and update',
+  updateError: 'Update failed: {detail}',
 }
 
 function pack(text: Record<MessageKey, string>): Record<MessageKey, string> {

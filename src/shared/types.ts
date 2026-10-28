@@ -18,6 +18,13 @@ export const DEFAULT_IMAGE_MODELS = [
   'z-ai/glm-image',
 ] as const
 
+export interface UpdateStatus {
+  phase: 'available' | 'progress' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  message?: string
+}
+
 export interface PageMeta {
   id: string
   title: string
@@ -133,4 +140,6 @@ export interface ZentionApi {
   saveExternalImage(payload: { base64: string; ext: string }): Promise<Result<{ path: string }>>
   onMarkdownOpen(callback: (filePath: string) => void): () => void
   takePendingMarkdown(): Promise<string>
+  onUpdate(callback: (status: UpdateStatus) => void): () => void
+  installUpdate(): Promise<Result<Record<string, never>>>
 }

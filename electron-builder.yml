@@ -1,6 +1,10 @@
 appId: com.bennix.zention
 productName: Zention
 copyright: Copyright © 2026 ZHIPING XU
+publish:
+  provider: github
+  owner: bennix
+  repo: Zention
 directories:
   output: dist
   buildResources: resources
@@ -24,6 +28,9 @@ mac:
   notarize: true
   target:
     - target: dmg
+      arch:
+        - universal
+    - target: zip
       arch:
         - universal
   artifactName: Zention-${version}-mac.${ext}
@@ -51,6 +58,10 @@ linux:
         - x64
         - arm64
     - target: rpm
+      arch:
+        - x64
+        - arm64
+    - target: appimage
       arch:
         - x64
         - arm64

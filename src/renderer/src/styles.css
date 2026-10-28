@@ -109,6 +109,7 @@ main { min-width: 0; overflow: auto; background: #fbfaf7; }
   padding: 10px 12px;
   margin-bottom: 8px;
 }
+main > .update-banner { margin: 16px 24px 0; }
 .banner button, .link {
   border: 0;
   background: transparent;
@@ -208,7 +209,7 @@ main { min-width: 0; overflow: auto; background: #fbfaf7; }
 
 .md-equation-block { overflow-x: auto; text-align: center; margin: 0.8em 0; cursor: pointer; }
 .md-equation-inline { cursor: pointer; }
-.md-codeblock-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.md-codeblock-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
 .md-codeblock .hljs-comment, .md-codeblock .hljs-quote { color: #8a8175; }
 .md-codeblock .hljs-keyword, .md-codeblock .hljs-selector-tag, .md-codeblock .hljs-meta .hljs-keyword { color: #8a3d32; }
 .md-codeblock .hljs-string, .md-codeblock .hljs-attr, .md-codeblock .hljs-addition { color: #2a6b45; }
