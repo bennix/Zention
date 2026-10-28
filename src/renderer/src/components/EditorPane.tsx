@@ -7,6 +7,7 @@ import { buildExtensions } from '../editor/extensions'
 import { latexFromModel, renderLatexToHtml } from '../editor/latex'
 import { buildSlashItems, type SlashActions, type SlashController, type SlashMenuState, type SelectionSlashDetail } from '../editor/slash'
 import { registerFlush } from '../flush'
+import { AttachmentBar, imageFiles, revokePromptImages, takePromptImages, type PromptImage } from './Attachments'
 import { SelectionMenu, SlashMenu, type SlashMenuHandle } from './Menus'
 import { useI18n } from '../i18n'
 import { decorateExportHtml } from '../exportHtml'
@@ -22,40 +23,27 @@ const REWRITE_SYSTEM =
 const EQUATION_SYSTEM =
   '你是 LaTeX 公式助手。只输出公式源码，不要解释，不要 Markdown，不要代码围栏，不要用 $ 或 $$ 包裹。图片里有多个公式时，按阅读顺序用空行隔开。'
 
-type EquationImage = { mime: string; base64: string }
-
 type Dialog =
-  | { kind: 'insert'; instruction: string }
-  | { kind: 'replace'; from: number; to: number; text: string; instruction: string }
+  | { kind: 'insert'; instruction: string; images: PromptImage[] }
+  | { kind: 'replace'; from: number; to: number; text: string; instruction: string; images: PromptImage[] }
   | { kind: 'image'; place: 'above' | 'below'; pos: number; prompt: string; aspect: string }
   | { kind: 'url' }
-  | { kind: 'recognize'; at: number; image: EquationImage | null; previewUrl: string | null }
+  | { kind: 'recognize'; at: number; images: PromptImage[] }
   | {
       kind: 'equation'
       pos: number
       kindName: 'inline' | 'block'
       latex: string
       instruction: string
-      image: EquationImage | null
-      previewUrl: string | null
+      images: PromptImage[]
     }
 
 function emptyEquation(pos: number, kindName: 'inline' | 'block', latex: string): Dialog {
-  return { kind: 'equation', pos, kindName, latex, instruction: '', image: null, previewUrl: null }
+  return { kind: 'equation', pos, kindName, latex, instruction: '', images: [] }
 }
 
-function imageFile(data: DataTransfer | null): File | null {
-  if (!data) return null
-  for (const item of data.items) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) {
-      const file = item.getAsFile()
-      if (file) return file
-    }
-  }
-  for (const file of data.files) {
-    if (file.type.startsWith('image/')) return file
-  }
-  return null
+function promptPayload(images: PromptImage[]): Array<{ mime: string; base64: string }> {
+  return images.map(({ mime, base64 }) => ({ mime, base64 }))
 }
 
 function markdownFromModel(raw: string): string {
@@ -103,15 +91,6 @@ function replaceMarkdown(
   }
   const added = editor.state.doc.content.size - before + (end - start)
   return { from: start, to: start + Math.max(0, added) }
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  }
-  return btoa(binary)
 }
 
 function illustrate(text: string): string {
@@ -240,38 +219,27 @@ export function EditorPane({
 
   const closeDialog = useCallback(() => {
     const current = dialogRef.current
-    if ((current?.kind === 'equation' || current?.kind === 'recognize') && current.previewUrl) URL.revokeObjectURL(current.previewUrl)
+    if (current && 'images' in current) revokePromptImages(current.images)
     dialogRef.current = null
     setDialog(null)
   }, [])
 
-  const pasteEquationImage = useCallback(
-    (file: File) => {
+  const addDialogImages = useCallback(
+    (files: File[]) => {
       const current = dialogRef.current
-      if (!current || (current.kind !== 'equation' && current.kind !== 'recognize')) return
-      if (!/^image\/(png|jpeg|jpg|gif|webp)$/i.test(file.type)) {
-        onToast(t('toastImageType'))
-        return
-      }
-      if (file.size > 8_000_000) {
-        onToast(t('toastImageBig'))
-        return
-      }
+      if (!current || !('images' in current)) return
       void (async () => {
-        const base64 = await fileToBase64(file)
-        const mime = file.type.toLowerCase() === 'image/jpg' ? 'image/jpeg' : file.type
-        const previewUrl = URL.createObjectURL(file)
-        const image = { mime, base64 }
+        const added = await takePromptImages(files, current.images.length, onToast, t)
+        if (!added.length) return
         setDialog((prev) => {
-          if (!prev || (prev.kind !== 'equation' && prev.kind !== 'recognize')) return prev
-          if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl)
-          const next = { ...prev, image, previewUrl }
+          if (!prev || !('images' in prev)) return prev
+          const next = { ...prev, images: [...prev.images, ...added] }
           dialogRef.current = next
           return next
         })
       })()
     },
-    [onToast],
+    [onToast, t],
   )
 
   const fail = useCallback(
@@ -286,14 +254,14 @@ export function EditorPane({
     const current = dialogRef.current
     if (!current || current.kind !== 'equation') return
     let latex = current.latex.trim()
-    if (current.instruction.trim() || current.image) {
-      setBusy(current.image ? t('busyRecognize') : t('busyFormula'))
+    if (current.instruction.trim() || current.images.length) {
+      setBusy(current.images.length ? t('busyRecognize') : t('busyFormula'))
       const response = await window.zention.aiComplete({
         system: EQUATION_SYSTEM,
-        temperature: current.image ? 0.1 : 0.2,
-        images: current.image ? [current.image] : undefined,
+        temperature: current.images.length ? 0.1 : 0.2,
+        images: current.images.length ? promptPayload(current.images) : undefined,
         user: [
-          current.image ? '请把图片中的公式转成 LaTeX。' : '',
+          current.images.length ? '请把图片中的公式转成 LaTeX。' : '',
           current.instruction.trim() ? `要求：${current.instruction.trim()}` : '整理并修正这个公式。',
           latex ? `已有公式：\n${latex}` : '',
         ]
@@ -334,12 +302,12 @@ export function EditorPane({
 
   const sendRecognize = useCallback(async () => {
     const current = dialogRef.current
-    if (!current || current.kind !== 'recognize' || !current.image) return
+    if (!current || current.kind !== 'recognize' || current.images.length === 0) return
     setBusy(t('busyRecognize'))
     const response = await window.zention.aiComplete({
       system: EQUATION_SYSTEM,
       temperature: 0.1,
-      images: [current.image],
+      images: promptPayload(current.images),
       user: '请把图片中的公式转成 LaTeX。',
     })
     setBusy('')
@@ -371,7 +339,7 @@ export function EditorPane({
   }, [closeDialog, fail, onToast])
 
   const streamIntoPage = useCallback(
-    async (input: { system: string; user: string }, range: { from: number; to: number } | null, label: string) => {
+    async (input: { system: string; user: string; images?: Array<{ mime: string; base64: string }> }, range: { from: number; to: number } | null, label: string) => {
       const editor = editorRef.current
       if (!editor) return
       setBusy(label)
@@ -421,11 +389,13 @@ export function EditorPane({
   )
 
   const writeAtCursor = useCallback(
-    async (instruction: string, source: string) => {
+    async (instruction: string, source: string, images: PromptImage[] = []) => {
+      const ask = instruction.trim() || '请根据附上的图片来写。'
       await streamIntoPage(
         {
           system: REWRITE_SYSTEM,
-          user: source ? `指令：${instruction}\n\n已有内容：\n${source}` : `指令：${instruction}`,
+          images: images.length ? promptPayload(images) : undefined,
+          user: source ? `指令：${ask}\n\n已有内容：\n${source}` : `指令：${ask}`,
         },
         null,
         t('busyWrite'),
@@ -435,11 +405,13 @@ export function EditorPane({
   )
 
   const replaceRange = useCallback(
-    async (from: number, to: number, text: string, instruction: string) => {
+    async (from: number, to: number, text: string, instruction: string, images: PromptImage[] = []) => {
+      const ask = instruction.trim() || '请根据附上的图片改写。'
       await streamIntoPage(
         {
           system: REWRITE_SYSTEM,
-          user: `指令：${rewritePrompt(instruction)}\n\n原文（Markdown，必须保留格式）：\n${text}`,
+          images: images.length ? promptPayload(images) : undefined,
+          user: `指令：${rewritePrompt(ask)}\n\n原文（Markdown，必须保留格式）：\n${text}`,
         },
         { from, to },
         t('busyRewrite'),
@@ -481,7 +453,7 @@ export function EditorPane({
     },
     aiInstruct(editor, range) {
       editor.chain().focus().deleteRange(range).run()
-      setDialog({ kind: 'insert', instruction: '' })
+      setDialog({ kind: 'insert', instruction: '', images: [] })
     },
     imageAbove(editor, range) {
       openImage(editor, range, 'above')
@@ -502,7 +474,7 @@ export function EditorPane({
     },
     recognizeFormula(editor, range) {
       editor.chain().focus().deleteRange(range).run()
-      const next = { kind: 'recognize' as const, at: editor.state.selection.from, image: null, previewUrl: null }
+      const next = { kind: 'recognize' as const, at: editor.state.selection.from, images: [] }
       dialogRef.current = next
       setDialog(next)
     },
@@ -572,7 +544,7 @@ export function EditorPane({
       const next = emptyEquation(detail.pos, detail.kind, detail.latex)
       dialogRef.current = next
       setDialog(next)
-      pasteEquationImage(detail.file)
+      addDialogImages([detail.file])
     }
     const onToastEvent = (event: Event) => onToast(String((event as CustomEvent).detail ?? ''))
     window.addEventListener('zention:selection-slash', onSelection)
@@ -585,7 +557,7 @@ export function EditorPane({
       window.removeEventListener('zention:equation-image', onEquationImage)
       window.removeEventListener('zention:toast', onToastEvent)
     }
-  }, [onToast, pasteEquationImage])
+  }, [addDialogImages, onToast])
 
   const pickSelection = (id: string) => {
     const detail = selection
@@ -593,7 +565,7 @@ export function EditorPane({
     setSelection(null)
     if (!detail || !current) return
     const source = detail.markdown || detail.text
-    if (id === 'ai') setDialog({ kind: 'replace', from: detail.from, to: detail.to, text: source, instruction: '' })
+    if (id === 'ai') setDialog({ kind: 'replace', from: detail.from, to: detail.to, text: source, instruction: '', images: [] })
     const preset = instructionFor(id)
     if (preset) void replaceRange(detail.from, detail.to, source, preset)
     if (id === 'above' || id === 'below') {
@@ -623,7 +595,8 @@ export function EditorPane({
           busy={busy}
           onChange={setDialog}
           onClose={closeDialog}
-          onPasteImage={pasteEquationImage}
+          onPasteImage={addDialogImages}
+          onToast={onToast}
           onRun={() => {
             const current = dialog
             if (!current) return
@@ -633,11 +606,13 @@ export function EditorPane({
                 editorRef.current?.state.selection.from ?? 0,
                 '\n',
               )
-              setDialog(null)
-              void writeAtCursor(current.instruction, source ?? '')
+              const images = current.images
+              closeDialog()
+              void writeAtCursor(current.instruction, source ?? '', images)
             } else if (current.kind === 'replace') {
-              setDialog(null)
-              void replaceRange(current.from, current.to, current.text, current.instruction)
+              const images = current.images
+              closeDialog()
+              void replaceRange(current.from, current.to, current.text, current.instruction, images)
             } else if (current.kind === 'image') {
               setDialog(null)
               void generateImage(current.pos, current.place, current.prompt, current.aspect)
@@ -659,55 +634,21 @@ export function EditorPane({
   )
 }
 
-function FormulaImageZone({
-  dialog,
-  onPasteImage,
-}: {
-  dialog: { image: EquationImage | null; previewUrl: string | null }
-  onPasteImage: (file: File) => void
-}) {
-  const { t } = useI18n()
-  return (
-    <div
-      className="paste-zone"
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault()
-        const file = imageFile(event.dataTransfer)
-        if (file) onPasteImage(file)
-      }}
-    >
-      {dialog.previewUrl ? <img src={dialog.previewUrl} alt="" /> : null}
-      <span>{dialog.image ? t('eqReady') : t('eqPaste')}</span>
-      <label className="file-btn">
-        {t('pickImage')}
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            if (file) onPasteImage(file)
-            event.target.value = ''
-          }}
-        />
-      </label>
-    </div>
-  )
-}
-
 function DialogView({
   dialog,
   busy,
   onChange,
   onClose,
   onPasteImage,
+  onToast,
   onRun,
 }: {
   dialog: Dialog
   busy: string
   onChange: (dialog: Dialog) => void
   onClose: () => void
-  onPasteImage: (file: File) => void
+  onPasteImage: (files: File[]) => void
+  onToast: (message: string) => void
   onRun: () => void
 }) {
   const { t } = useI18n()
@@ -726,7 +667,7 @@ function DialogView({
   const sendText = (() => {
     if (busy) return busy
     if (dialog.kind === 'url') return t('insert')
-    if ((dialog.kind === 'equation' || dialog.kind === 'recognize') && dialog.image) return t('recognizeWrite')
+    if ((dialog.kind === 'equation' || dialog.kind === 'recognize') && dialog.images.length) return t('recognizeWrite')
     return t('send')
   })()
   return (
@@ -735,11 +676,11 @@ function DialogView({
         className="modal compact"
         onMouseDown={(event) => event.stopPropagation()}
         onPaste={(event) => {
-          if (dialog.kind !== 'equation' && dialog.kind !== 'recognize') return
-          const file = imageFile(event.clipboardData)
-          if (!file) return
+          if (!('images' in dialog)) return
+          const files = imageFiles(event.clipboardData)
+          if (!files.length) return
           event.preventDefault()
-          onPasteImage(file)
+          onPasteImage(files)
         }}
         onSubmit={(event) => {
           event.preventDefault()
@@ -753,13 +694,21 @@ function DialogView({
           </button>
         </header>
         {dialog.kind === 'insert' || dialog.kind === 'replace' ? (
-          <textarea
-            autoFocus
-            rows={5}
-            placeholder={t('promptPh')}
-            value={dialog.instruction}
-            onChange={(event) => onChange({ ...dialog, instruction: event.target.value })}
-          />
+          <>
+            <textarea
+              autoFocus
+              rows={5}
+              placeholder={t('promptPh')}
+              value={dialog.instruction}
+              onChange={(event) => onChange({ ...dialog, instruction: event.target.value })}
+            />
+            <AttachmentBar
+              images={dialog.images}
+              disabled={!!busy}
+              onToast={onToast}
+              onChange={(images) => onChange({ ...dialog, images })}
+            />
+          </>
         ) : null}
         {dialog.kind === 'image' ? (
           <>
@@ -797,13 +746,23 @@ function DialogView({
                 onChange={(event) => onChange({ ...dialog, instruction: event.target.value })}
               />
             </label>
-            <FormulaImageZone dialog={dialog} onPasteImage={onPasteImage} />
+            <AttachmentBar
+              images={dialog.images}
+              disabled={!!busy}
+              onToast={onToast}
+              onChange={(images) => onChange({ ...dialog, images })}
+            />
           </>
         ) : null}
         {dialog.kind === 'recognize' ? (
           <>
             <p className="hint">{t('eqRecognizeHint')}</p>
-            <FormulaImageZone dialog={dialog} onPasteImage={onPasteImage} />
+            <AttachmentBar
+              images={dialog.images}
+              disabled={!!busy}
+              onToast={onToast}
+              onChange={(images) => onChange({ ...dialog, images })}
+            />
           </>
         ) : null}
         <button
@@ -811,10 +770,10 @@ function DialogView({
           className="send-btn"
           disabled={
             !!busy ||
-            ((dialog.kind === 'insert' || dialog.kind === 'replace') && !dialog.instruction.trim()) ||
+            ((dialog.kind === 'insert' || dialog.kind === 'replace') && !dialog.instruction.trim() && dialog.images.length === 0) ||
             (dialog.kind === 'image' && !dialog.prompt.trim()) ||
-            (dialog.kind === 'equation' && !dialog.latex.trim() && !dialog.instruction.trim() && !dialog.image) ||
-            (dialog.kind === 'recognize' && !dialog.image)
+            (dialog.kind === 'equation' && !dialog.latex.trim() && !dialog.instruction.trim() && dialog.images.length === 0) ||
+            (dialog.kind === 'recognize' && dialog.images.length === 0)
           }
         >
           {sendText}

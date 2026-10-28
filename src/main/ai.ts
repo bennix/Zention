@@ -315,7 +315,7 @@ function chatText(content: unknown): string {
 }
 
 function chatImages(images: ChatInput['images']): Array<{ mime: string; base64: string }> {
-  return (images ?? []).slice(0, 1).map((image) => {
+  return (images ?? []).slice(0, 5).map((image) => {
     const mime = image.mime.split(';')[0]?.trim().toLowerCase() ?? ''
     const normalized = mime === 'image/jpg' ? 'image/jpeg' : mime
     if (!/^image\/(png|jpeg|gif|webp)$/.test(normalized)) throw new Error(msg('errImageType'))

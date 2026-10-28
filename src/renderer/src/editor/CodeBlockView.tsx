@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/react'
+import { AttachmentBar, imageFiles, revokePromptImages, takePromptImages, type PromptImage } from '../components/Attachments'
 import { beginAiHistory, tagAiHistory } from './aiHistory'
 import { useI18n } from '../i18n'
 
@@ -21,6 +22,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
   const [renderError, setRenderError] = useState('')
   const [aiOpen, setAiOpen] = useState(false)
   const [aiPrompt, setAiPrompt] = useState('')
+  const [aiImages, setAiImages] = useState<PromptImage[]>([])
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState('')
   const renderId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
@@ -61,13 +63,15 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
   }
 
   const applyAi = async () => {
-    if (!aiPrompt.trim() || aiBusy) return
+    if ((!aiPrompt.trim() && aiImages.length === 0) || aiBusy) return
     setAiBusy(true)
     setAiError('')
+    const ask = aiPrompt.trim() || '请根据附上的图片修改。'
     const response = await window.zention.aiComplete({
       system:
         '你是 Mermaid 源码编辑器。只返回合法 Mermaid 源码，不要 Markdown 围栏，不要解释。可见标签使用用户的语言。不要 HTML、点击事件或外链。',
-      user: `按指令修改下面的 Mermaid。\n\n指令：\n${aiPrompt.trim()}\n\n当前源码：\n${node.textContent}`,
+      images: aiImages.length ? aiImages.map(({ mime, base64 }) => ({ mime, base64 })) : undefined,
+      user: `按指令修改下面的 Mermaid。\n\n指令：\n${ask}\n\n当前源码：\n${node.textContent}`,
     })
     setAiBusy(false)
     if (!response.ok) {
@@ -89,6 +93,10 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
     tagAiHistory(tr, beginAiHistory(), true)
     editor.view.dispatch(tr)
     setAiPrompt('')
+    setAiImages((current) => {
+      revokePromptImages(current)
+      return []
+    })
     setAiOpen(false)
     setEditing(false)
   }
@@ -115,13 +123,38 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
           </button>
         )}
         {isMermaid && (
-          <button type="button" onClick={() => setAiOpen((value) => !value)}>
+          <button
+            type="button"
+            onClick={() => {
+              setAiOpen((open) => {
+                if (open) {
+                  setAiImages((current) => {
+                    revokePromptImages(current)
+                    return []
+                  })
+                }
+                return !open
+              })
+            }}
+          >
             {t('mermaidAi')}
           </button>
         )}
       </div>
       {isMermaid && aiOpen && (
-        <div className="md-mermaid-ai" contentEditable={false}>
+        <div
+          className="md-mermaid-ai"
+          contentEditable={false}
+          onPaste={(event) => {
+            const files = imageFiles(event.clipboardData)
+            if (!files.length) return
+            event.preventDefault()
+            event.stopPropagation()
+            void takePromptImages(files, aiImages.length, setAiError, t).then((added) => {
+              if (added.length) setAiImages((current) => [...current, ...added])
+            })
+          }}
+        >
           <textarea
             value={aiPrompt}
             placeholder={t('mermaidPh')}
@@ -130,10 +163,26 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void applyAi()
             }}
           />
-          <button type="button" className="send-btn" onClick={() => void applyAi()} disabled={aiBusy || !aiPrompt.trim()}>
+          <AttachmentBar
+            images={aiImages}
+            disabled={aiBusy}
+            onToast={setAiError}
+            onChange={setAiImages}
+          />
+          <button type="button" className="send-btn" onClick={() => void applyAi()} disabled={aiBusy || (!aiPrompt.trim() && aiImages.length === 0)}>
             {aiBusy ? t('sending') : t('send')}
           </button>
-          <button type="button" onClick={() => setAiOpen(false)} disabled={aiBusy}>
+          <button
+            type="button"
+            onClick={() => {
+              setAiImages((current) => {
+                revokePromptImages(current)
+                return []
+              })
+              setAiOpen(false)
+            }}
+            disabled={aiBusy}
+          >
             {t('cancel')}
           </button>
           {aiError ? <p className="error">{aiError}</p> : null}
