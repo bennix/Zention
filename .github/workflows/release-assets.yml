@@ -5,11 +5,17 @@ on:
     inputs:
       run_id:
         description: Actions run that already built the Linux and Windows installers
-        required: true
+        required: false
+        default: ""
         type: string
       tag:
         description: Existing release tag
         required: true
+        type: string
+      dmg_ref:
+        description: Branch whose part-* files concatenate into the macOS DMG
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -19,13 +25,15 @@ permissions:
 jobs:
   upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Download the built installers
+        if: inputs.run_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh run download "${{ inputs.run_id }}" --repo "${{ github.repository }}" --dir dist
       - name: Attach them to the release
+        if: inputs.run_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -34,3 +42,20 @@ jobs:
           test "${#files[@]}" -gt 0
           printf '%s\n' "${files[@]}"
           gh release upload "${{ inputs.tag }}" "${files[@]}" --repo "${{ github.repository }}" --clobber
+      - name: Attach the macOS disk image
+        if: inputs.dmg_ref != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf dmg-src
+          git init dmg-src
+          git -C dmg-src fetch --depth 1 "https://github.com/${{ github.repository }}.git" "${{ inputs.dmg_ref }}"
+          git -C dmg-src checkout FETCH_HEAD
+          cat dmg-src/part-* > Zention-0.1.3-mac.dmg
+          if [ -f dmg-src/SHA256 ]; then
+            expected=$(tr -d '[:space:]' < dmg-src/SHA256)
+            actual=$(shasum -a 256 Zention-0.1.3-mac.dmg | awk '{print $1}')
+            test "$expected" = "$actual"
+          fi
+          gh release upload "${{ inputs.tag }}" Zention-0.1.3-mac.dmg --repo "${{ github.repository }}" --clobber
