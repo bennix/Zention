@@ -209,6 +209,13 @@ main { min-width: 0; overflow: auto; background: #fbfaf7; }
 .md-equation-block { overflow-x: auto; text-align: center; margin: 0.8em 0; cursor: pointer; }
 .md-equation-inline { cursor: pointer; }
 .md-codeblock-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.md-codeblock .hljs-comment, .md-codeblock .hljs-quote { color: #8a8175; }
+.md-codeblock .hljs-keyword, .md-codeblock .hljs-selector-tag, .md-codeblock .hljs-meta .hljs-keyword { color: #8a3d32; }
+.md-codeblock .hljs-string, .md-codeblock .hljs-attr, .md-codeblock .hljs-addition { color: #2a6b45; }
+.md-codeblock .hljs-number, .md-codeblock .hljs-literal, .md-codeblock .hljs-type, .md-codeblock .hljs-built_in { color: #8a5a12; }
+.md-codeblock .hljs-title, .md-codeblock .hljs-section, .md-codeblock .hljs-name, .md-codeblock .hljs-selector-id, .md-codeblock .hljs-selector-class { color: #2c4c78; }
+.md-codeblock .hljs-variable, .md-codeblock .hljs-template-variable, .md-codeblock .hljs-attribute { color: #6b4c2a; }
+.md-codeblock .hljs-symbol, .md-codeblock .hljs-bullet, .md-codeblock .hljs-link { color: #0f7b6c; }
 .md-codeblock-bar select, .md-codeblock-bar button { background: white; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
 .md-mermaid-preview { background: white; border-radius: 8px; padding: 12px; overflow: auto; }
 .md-mermaid-preview svg { max-width: 100%; height: auto; }

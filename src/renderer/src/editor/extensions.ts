@@ -3,9 +3,10 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from '@tiptap/markdown'
 import { TableKit } from '@tiptap/extension-table'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
-import { CodeBlock } from '@tiptap/extension-code-block'
+import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { Placeholder } from '@tiptap/extensions'
+import { codeLowlight } from './codeHighlight'
 import { CodeBlockView } from './CodeBlockView'
 import { createLocalImage } from './image'
 import { BlockEquation, InlineEquation } from './equation'
@@ -26,10 +27,13 @@ export function buildExtensions(options: {
       underline: false,
       dropcursor: { color: false, width: 6, class: 'zention-dropcursor' },
     }),
-    CodeBlock.extend({
+    CodeBlockLowlight.extend({
       addNodeView() {
         return ReactNodeViewRenderer(CodeBlockView)
       },
+    }).configure({
+      lowlight: codeLowlight,
+      defaultLanguage: 'plaintext',
     }),
     Markdown.configure({ indentation: { style: 'space', size: 4 } }),
     TableKit.configure({ table: { resizable: false, renderWrapper: true } }),

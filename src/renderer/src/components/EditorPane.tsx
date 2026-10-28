@@ -5,7 +5,8 @@ import { beginAiHistory, tagAiHistory } from '../editor/aiHistory'
 import { instructionFor, rewritePrompt } from '../editor/rewrite'
 import { buildExtensions } from '../editor/extensions'
 import { latexFromModel, renderLatexToHtml } from '../editor/latex'
-import { buildSlashItems, type SlashActions, type SlashController, type SlashMenuState, type SelectionSlashDetail } from '../editor/slash'
+import { codeBlockPos, requestCodeIndent } from '../editor/codeIndent'
+import { buildSlashItems, mergeSelectionIntoBlock, selectionToCodeBlock, type SlashActions, type SlashController, type SlashMenuState, type SelectionSlashDetail } from '../editor/slash'
 import { registerFlush } from '../flush'
 import { AttachmentBar, imageFiles, revokePromptImages, takePromptImages, type PromptImage } from './Attachments'
 import { SelectionMenu, SlashMenu, type SlashMenuHandle } from './Menus'
@@ -582,6 +583,12 @@ export function EditorPane({
       })
     }
     const chain = current.chain().focus().setTextSelection({ from: detail.from, to: detail.to })
+    if (id === 'merge') mergeSelectionIntoBlock(current, detail.from, detail.to)
+    if (id === 'code' && selectionToCodeBlock(current, detail.from, detail.to)) {
+      const pos = codeBlockPos(current)
+      const block = pos == null ? null : current.state.doc.nodeAt(pos)
+      if (pos != null && block?.textContent.trim()) requestCodeIndent(pos)
+    }
     if (id === 'h1') chain.setHeading({ level: 1 }).run()
     if (id === 'h2') chain.setHeading({ level: 2 }).run()
     if (id === 'quote') chain.toggleBlockquote().run()

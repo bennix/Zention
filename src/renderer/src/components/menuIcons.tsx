@@ -58,6 +58,7 @@ const LINES: Record<string, string[]> = {
   'recognize-formula': ['M2.5 3h6.5v6.5H2.5z', 'M10 8.5h3.5', 'M11.8 6.8v4.8', 'M10 12.2h3.5'],
   'ai-image-above': ['M3 7.5h10v5.5H3z', 'M8 2.2v4', 'M6 4.2 8 2.2 10 4.2'],
   'ai-image-below': ['M3 3h10v5.5H3z', 'M8 9.8v4', 'M6 11.8 8 13.8 10 11.8'],
+  merge: ['M2.5 4.5h11', 'M2.5 8h11', 'M5.5 11.2 8 13.5 10.5 11.2'],
   above: ['M3 7.5h10v5.5H3z', 'M8 2.2v4', 'M6 4.2 8 2.2 10 4.2'],
   below: ['M3 3h10v5.5H3z', 'M8 9.8v4', 'M6 11.8 8 13.8 10 11.8'],
   polish: ['M9.5 2.5 13.5 6.5 6 14H2v-4z', 'M8 4 12 8'],

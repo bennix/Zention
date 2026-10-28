@@ -1,5 +1,6 @@
 import { Extension, type Editor, type JSONContent, type Range } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Suggestion } from '@tiptap/suggestion'
 import type { SuggestionProps } from '@tiptap/suggestion'
 import { t } from '../i18n'
@@ -32,6 +33,7 @@ export interface SelectionSlashDetail {
   left: number
   top: number
   bottom: number
+  spansBlocks: boolean
 }
 
 function selectionMarkdown(editor: Editor, from: number, to: number, plain: string): string {
@@ -45,6 +47,163 @@ function selectionMarkdown(editor: Editor, from: number, to: number, plain: stri
   } catch {
     return plain
   }
+}
+
+function textblocksBetween(doc: PMNode, from: number, to: number): Array<{ pos: number; node: PMNode }> {
+  const blocks: Array<{ pos: number; node: PMNode }> = []
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isTextblock) return
+    const contentStart = pos + 1
+    const contentEnd = pos + node.nodeSize - 1
+    if (contentStart < to && contentEnd > from) blocks.push({ pos, node })
+    return false
+  })
+  return blocks
+}
+
+function needsJoinSpace(prev: PMNode, next: PMNode): boolean {
+  const left = prev.textContent
+  const right = next.textContent
+  if (!left || !right || /\s$/.test(left) || /^\s/.test(right)) return false
+  return !(/[\u3400-\u9fff]$/.test(left) && /^[\u3400-\u9fff]/.test(right))
+}
+
+const MERGE_SIBLINGS = new Set(['paragraph', 'heading', 'blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem'])
+
+export function mergeSelectionIntoBlock(editor: Editor, from: number, to: number): boolean {
+  const { doc, schema } = editor.state
+  const paragraph = schema.nodes.paragraph
+  if (!paragraph || from >= to) return false
+  const blocks = textblocksBetween(doc, from, to)
+  const first = blocks[0]
+  const last = blocks[blocks.length - 1]
+  if (!first || !last || blocks.length < 2) return false
+  const $from = doc.resolve(first.pos + 1)
+  const $to = doc.resolve(last.pos + 1)
+  let start = -1
+  let end = -1
+  let parentName = ''
+  for (let depth = 1; depth <= Math.min($from.depth, $to.depth); depth += 1) {
+    if ($from.node(depth - 1) !== $to.node(depth - 1) || $from.index(depth - 1) === $to.index(depth - 1)) continue
+    start = $from.before(depth)
+    end = $to.after(depth)
+    parentName = $from.node(depth - 1).type.name
+    break
+  }
+  if (start < 0) return false
+  for (let pos = start; pos < end; ) {
+    const node = doc.nodeAt(pos)
+    if (!node || !MERGE_SIBLINGS.has(node.type.name)) return false
+    pos += node.nodeSize
+  }
+  const inlines: PMNode[] = []
+  for (const block of blocks) {
+    if (block.pos < start || block.pos >= end) continue
+    const chunk: PMNode[] = []
+    block.node.forEach((child) => {
+      if (child.isInline) chunk.push(child)
+    })
+    if (!chunk.length) continue
+    const prev = inlines[inlines.length - 1]
+    const head = chunk[0]
+    if (prev && head && needsJoinSpace(prev, head)) inlines.push(schema.text(' '))
+    inlines.push(...chunk)
+  }
+  if (!inlines.length) return false
+  const body = paragraph.create(null, inlines)
+  const listItem = parentName === 'taskList' ? schema.nodes.taskItem : parentName === 'bulletList' || parentName === 'orderedList' ? schema.nodes.listItem : null
+  const merged = listItem ? listItem.create(parentName === 'taskList' ? { checked: false } : null, body) : body
+  return editor
+    .chain()
+    .focus()
+    .command(({ tr }) => {
+      tr.replaceWith(start, end, merged)
+      const pos = Math.min(tr.mapping.map(start) + 1, tr.doc.content.size)
+      tr.setSelection(TextSelection.near(tr.doc.resolve(pos)))
+      return true
+    })
+    .run()
+}
+
+function siblingsAllowed(doc: PMNode, start: number, end: number): boolean {
+  for (let pos = start; pos < end; ) {
+    const node = doc.nodeAt(pos)
+    if (!node || !MERGE_SIBLINGS.has(node.type.name)) return false
+    pos += node.nodeSize
+  }
+  return true
+}
+
+function replaceWithCode(editor: Editor, start: number, end: number, content: PMNode | PMNode[]): boolean {
+  const fragment = Fragment.from(content)
+  const { doc } = editor.state
+  const $start = doc.resolve(start)
+  if (!$start.parent.canReplace($start.index(), doc.resolve(end).index(), fragment)) return false
+  return editor
+    .chain()
+    .focus()
+    .command(({ tr }) => {
+      tr.replaceWith(start, end, fragment)
+      let codeAt = start
+      tr.doc.nodesBetween(start, start + fragment.size, (node, pos) => {
+        if (node.type.name !== 'codeBlock') return
+        codeAt = pos
+        return false
+      })
+      const inside = Math.min(codeAt + 1, tr.doc.content.size)
+      tr.setSelection(TextSelection.near(tr.doc.resolve(Math.max(1, inside))))
+      return true
+    })
+    .run()
+}
+
+export function selectionToCodeBlock(editor: Editor, from: number, to: number): boolean {
+  const { doc, schema } = editor.state
+  const codeBlock = schema.nodes.codeBlock
+  if (!codeBlock || from >= to) return false
+  const blocks = textblocksBetween(doc, from, to)
+  const first = blocks[0]
+  const last = blocks[blocks.length - 1]
+  if (!first || !last) return false
+  const text = blocks.map((block) => block.node.textContent).join('\n')
+  const code = text ? codeBlock.create(null, schema.text(text)) : codeBlock.create()
+  if (blocks.length === 1) {
+    if (editor.chain().focus().setTextSelection({ from, to }).setCodeBlock().run()) return true
+    const itemName = editor.isActive('taskItem') ? 'taskItem' : editor.isActive('listItem') ? 'listItem' : null
+    if (itemName && editor.chain().focus().setTextSelection({ from, to }).liftListItem(itemName).setCodeBlock().run()) return true
+  }
+  const $from = doc.resolve(first.pos + 1)
+  const $to = doc.resolve(last.pos + 1)
+  for (let depth = 1; depth <= Math.min($from.depth, $to.depth); depth += 1) {
+    if ($from.node(depth - 1) !== $to.node(depth - 1) || $from.index(depth - 1) === $to.index(depth - 1)) continue
+    const parent = $from.node(depth - 1)
+    const start = $from.before(depth)
+    const end = $to.after(depth)
+    if (!siblingsAllowed(doc, start, end)) return false
+    if (parent.type.contentMatch.matchType(codeBlock)) return replaceWithCode(editor, start, end, code)
+    const nestedItem = parent.type.name === 'listItem' || parent.type.name === 'taskItem'
+    const list = nestedItem ? $from.node(depth - 2) : parent
+    if (list.type.name !== 'bulletList' && list.type.name !== 'orderedList' && list.type.name !== 'taskList') return false
+    const itemDepth = nestedItem ? depth - 1 : depth
+    const listStart = $from.before(itemDepth - 1)
+    const fromIndex = $from.index(itemDepth - 1)
+    const toIndex = $to.index(itemDepth - 1)
+    const before: PMNode[] = []
+    const after: PMNode[] = []
+    for (let index = 0; index < list.childCount; index += 1) {
+      if (index < fromIndex) before.push(list.child(index))
+      else if (index > toIndex) after.push(list.child(index))
+    }
+    const pieces: PMNode[] = []
+    if (before.length) pieces.push(list.type.create(list.attrs, before))
+    pieces.push(code)
+    if (after.length) {
+      const startAt = list.type.name === 'orderedList' ? Number(list.attrs.start ?? 1) + toIndex + 1 : null
+      pieces.push(list.type.create(startAt == null ? list.attrs : { ...list.attrs, start: startAt }, after))
+    }
+    return replaceWithCode(editor, listStart, listStart + list.nodeSize, pieces)
+  }
+  return false
 }
 
 function chain(editor: Editor, range: Range) {
@@ -216,6 +375,7 @@ export const SelectionSlash = Extension.create({
               left: coords.left,
               top: coords.top,
               bottom: coords.bottom,
+              spansBlocks: textblocksBetween(view.state.doc, from, to).length > 1,
             }
             window.dispatchEvent(new CustomEvent('zention:selection-slash', { detail }))
             return true

@@ -124,10 +124,12 @@ export function SelectionMenu({
     { id: 'translate', label: t('menuTranslate'), group: 'translate' },
     { id: 'above', label: t('menuAbove') },
     { id: 'below', label: t('menuBelow') },
+    ...(detail?.spansBlocks ? [{ id: 'merge', label: t('menuMerge') }] : []),
     { id: 'h1', label: t('menuH1') },
     { id: 'h2', label: t('menuH2') },
     { id: 'quote', label: t('menuQuote') },
     { id: 'task', label: t('menuTask') },
+    { id: 'code', label: t('menuCode') },
   ]
   const submenus = {
     polish: { title: t('polishTitle'), items: POLISH_STYLES.map((item) => ({ id: item.id, label: t(POLISH_KEYS[item.id] ?? 'styleNatural') })) },
