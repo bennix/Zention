@@ -84,7 +84,7 @@ const zhCN = {
   bindExisting: '或绑定已有仓库',
   binding: '正在绑定并同步 {percent}%',
   bindSync: '绑定并同步',
-  syncTarget: '当前同步到 {repo}（{branch}）',
+  syncTarget: '当前同步到 {repo}（{branch}）。包含笔记和图片。',
   repoCreated: '私有仓库已建立，全部 {count} 个页面已同步到 {url}',
   repoBound: '已绑定，全部 {count} 个页面已同步到 {url}',
   mergedTail: '，{count} 页已合并到同一页面',
@@ -221,12 +221,12 @@ const zhCN = {
   syncConnect: '正在连接 {repo}…',
   syncReadBranch: '正在读取 {branch} 分支…',
   syncWaitBranch: '等待 {branch} 分支就绪（{attempt}/6）…',
-  syncPrepareUpload: '正在准备上传本地页面…',
+  syncPrepareUpload: '正在准备上传笔记和图片…',
   syncUpload: '正在上传全部 {pages} 个页面 {done}/{total}：{name}',
   syncWriteTree: '正在写入目录树…',
   syncCommit: '正在创建提交…',
   syncUpdateBranch: '正在更新 {branch} 分支…',
-  syncDoneAll: '双向同步完成，全部 {count} 个页面',
+  syncDoneAll: '双向同步完成，{count} 个页面',
   syncCreatingRepo: '正在创建私有仓库…',
   syncRepoCreated: '私有仓库已创建，开始同步笔记…',
   syncRepoExists: '仓库已存在，改为绑定并同步…',
@@ -280,6 +280,7 @@ const zhCN = {
   unsaved: '未保存',
   externalDirty: '这个文件还有未保存的修改。要放弃这些修改吗？',
   notMarkdown: '请拖入 Markdown 文件',
+  notes: '笔记',
 } as const
 
 export type MessageKey = keyof typeof zhCN
@@ -353,7 +354,7 @@ const en: Record<MessageKey, string> = {
   bindExisting: 'Or link an existing repository',
   binding: 'Linking and syncing {percent}%',
   bindSync: 'Link and sync',
-  syncTarget: 'Syncing to {repo} ({branch})',
+  syncTarget: 'Syncing to {repo} ({branch}). This includes notes and images.',
   repoCreated: 'Private repository created. All {count} pages synced to {url}',
   repoBound: 'Linked. All {count} pages synced to {url}',
   mergedTail: ', {count} pages merged into the same page',
@@ -490,7 +491,7 @@ const en: Record<MessageKey, string> = {
   syncConnect: 'Connecting to {repo}…',
   syncReadBranch: 'Reading branch {branch}…',
   syncWaitBranch: 'Waiting for branch {branch} ({attempt}/6)…',
-  syncPrepareUpload: 'Preparing local pages…',
+  syncPrepareUpload: 'Preparing notes and images…',
   syncUpload: 'Uploading all {pages} pages {done}/{total}: {name}',
   syncWriteTree: 'Writing the tree…',
   syncCommit: 'Creating the commit…',
@@ -549,6 +550,7 @@ const en: Record<MessageKey, string> = {
   unsaved: 'Unsaved',
   externalDirty: 'This file has unsaved changes. Discard them?',
   notMarkdown: 'Drop a Markdown file',
+  notes: 'Notes',
 }
 
 function pack(text: Record<MessageKey, string>): Record<MessageKey, string> {

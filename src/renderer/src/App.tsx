@@ -410,14 +410,14 @@ export default function App() {
     }
   }
 
-  const saveSettings = async (patch: SettingsPatch) => {
+  const saveSettings = async (patch: SettingsPatch, close = true) => {
     const result = await window.zention.updateSettings(patch)
     if (!result.ok) {
       notify(result.error)
       return
     }
     setSettings(result.settings)
-    setSettingsOpen(false)
+    if (close) setSettingsOpen(false)
     notify(t('settingsSaved'))
   }
 
@@ -431,6 +431,7 @@ export default function App() {
     setSettings(result.settings)
   }
 
+
   if (booting || !settings) return <div className="boot">{t('boot')}</div>
 
   return (
@@ -441,6 +442,7 @@ export default function App() {
           {t('newPage')}
         </button>
         <nav>
+          <div className="side-label">{t('notes')}</div>
           {external ? (
             <div className="page-row active">
               <button type="button">{external.name}</button>

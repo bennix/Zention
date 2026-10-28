@@ -3,7 +3,9 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { safeStorage } from 'electron'
-import { normalizeLocale, translate, type LocaleId, type MessageKey } from '../shared/i18n'
+import { normalizeLocale, translate, type MessageKey } from '../shared/i18n'
+import { currentLocale, setCurrentLocale } from './locale'
+export { currentLocale }
 import { normalizeProxyUrl } from './proxy'
 import {
   DEFAULT_CHAT_MODELS,
@@ -45,11 +47,6 @@ interface IndexFile {
 
 let userDataDir = ''
 let workspaceDir = ''
-let localeCache: LocaleId = 'zh-CN'
-
-export function currentLocale(): LocaleId {
-  return localeCache
-}
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'])
 
@@ -212,7 +209,7 @@ function normalizeModels(list: string[] | undefined, fallback: readonly string[]
 
 async function readDisk(): Promise<DiskSettings> {
   const disk = (await readJson<DiskSettings>(settingsPath())) ?? {}
-  localeCache = normalizeLocale(disk.locale)
+  setCurrentLocale(disk.locale)
   return disk
 }
 

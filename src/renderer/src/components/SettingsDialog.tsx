@@ -12,16 +12,19 @@ export function SettingsDialog({
   settings: SettingsView
   onClose: () => void
   onLocale: (locale: string) => void
-  onSave: (patch: {
-    apiKey?: string
-    clearApiKey?: boolean
-    baseUrl: string
-    chatModels: string[]
-    chatModel: string
-    imageModels: string[]
-    imageModel: string
-    proxy: string
-  }) => Promise<void>
+  onSave: (
+    patch: {
+      apiKey?: string
+      clearApiKey?: boolean
+      baseUrl: string
+      chatModels: string[]
+      chatModel: string
+      imageModels: string[]
+      imageModel: string
+      proxy: string
+    },
+    close?: boolean,
+  ) => Promise<void>
 }) {
   const { t, locale } = useI18n()
   const [apiKey, setApiKey] = useState('')
@@ -91,6 +94,21 @@ export function SettingsDialog({
     if (result.ok) setApiKey(result.value)
   }
 
+  const settingsPatch = (nextChat = chatModels) => ({
+    ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+    baseUrl,
+    chatModels: nextChat,
+    chatModel,
+    imageModels,
+    imageModel,
+    proxy,
+  })
+
+  const persist = (close: boolean) => {
+    setSaving(true)
+    void onSave(settingsPatch(), close).finally(() => setSaving(false))
+  }
+
   const add = (kind: 'chat' | 'image') => {
     const draft = (kind === 'chat' ? chatDraft : imageDraft).trim()
     if (!draft) return
@@ -128,16 +146,7 @@ export function SettingsDialog({
         onMouseDown={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault()
-          setSaving(true)
-          void onSave({
-            ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-            baseUrl,
-            chatModels,
-            chatModel,
-            imageModels,
-            imageModel,
-            proxy,
-          }).finally(() => setSaving(false))
+          persist(true)
         }}
       >
         <header>
@@ -236,7 +245,9 @@ export function SettingsDialog({
               onClick={() => {
                 setApiKey('')
                 setSaving(true)
-                void onSave({ clearApiKey: true, baseUrl, chatModels, chatModel, imageModels, imageModel, proxy }).finally(() => setSaving(false))
+                const patch = settingsPatch()
+                delete patch.apiKey
+                void onSave({ ...patch, clearApiKey: true }, true).finally(() => setSaving(false))
               }}
             >
               {t('clearKey')}

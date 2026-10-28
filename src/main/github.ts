@@ -400,7 +400,7 @@ export async function syncWorkspace(onProgress?: SyncReporter): Promise<{ url: s
   const commit = await gh(token, `${base}/git/commits`, {
     method: 'POST',
     body: JSON.stringify({
-      message: `同步全部 ${pageCount} 个页面`,
+      message: `同步笔记（${pageCount} 个页面）`,
       tree: tree.sha,
       parents: parent ? [parent] : [],
     }),
@@ -431,8 +431,7 @@ export async function syncWorkspace(onProgress?: SyncReporter): Promise<{ url: s
   for (const page of pages) snapshotPages[page.id] = page.digest
   const snapshotAssets: Record<string, string> = {}
   for (const file of files) {
-    if (!file.path.startsWith('assets/')) continue
-    snapshotAssets[file.path.slice('assets/'.length)] = createHash('sha256').update(file.bytes).digest('hex')
+    if (file.path.startsWith('assets/')) snapshotAssets[file.path.slice('assets/'.length)] = createHash('sha256').update(file.bytes).digest('hex')
   }
   await writeSyncState({ commit: commit.sha as string, pages: snapshotPages, assets: snapshotAssets })
   say(onProgress, 100, 'syncDoneAll', { count: pageCount })

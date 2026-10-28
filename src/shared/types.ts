@@ -82,7 +82,6 @@ export interface ChatInput {
   system: string
   user: string
   model?: string
-  temperature?: number
   images?: ChatImage[]
 }
 
@@ -101,7 +100,7 @@ export interface ZentionApi {
   deletePage(id: string): Promise<Result<{ pages: PageMeta[] }>>
   pickImage(): Promise<Result<{ path: string | null }>>
   saveImage(payload: { base64: string; ext: string }): Promise<Result<{ path: string }>>
-  aiComplete(input: ChatInput, onDelta?: (delta: string) => void): Promise<Result<{ content: string }>>
+  aiComplete(input: ChatInput, onDelta?: (delta: string) => void, onReset?: () => void): Promise<Result<{ content: string }>>
   aiImage(input: {
     prompt: string
     model?: string

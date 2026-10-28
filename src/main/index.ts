@@ -151,9 +151,15 @@ function registerIpc(): void {
   ipcMain.handle('ai:complete', (event, input: ChatInput & { streamId?: string }) =>
     guard(async () => {
       const { streamId, ...chat } = input
-      const content = await completeChat(chat, (delta) => {
-        if (streamId) event.sender.send('ai:delta', { streamId, delta })
-      })
+      const content = await completeChat(
+        chat,
+        (delta) => {
+          if (streamId) event.sender.send('ai:delta', { streamId, delta })
+        },
+        () => {
+          if (streamId) event.sender.send('ai:delta', { streamId, reset: true })
+        },
+      )
       return { content }
     }),
   )

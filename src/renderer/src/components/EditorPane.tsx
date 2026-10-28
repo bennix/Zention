@@ -258,7 +258,6 @@ export function EditorPane({
       setBusy(current.images.length ? t('busyRecognize') : t('busyFormula'))
       const response = await window.zention.aiComplete({
         system: EQUATION_SYSTEM,
-        temperature: current.images.length ? 0.1 : 0.2,
         images: current.images.length ? promptPayload(current.images) : undefined,
         user: [
           current.images.length ? '请把图片中的公式转成 LaTeX。' : '',
@@ -306,7 +305,6 @@ export function EditorPane({
     setBusy(t('busyRecognize'))
     const response = await window.zention.aiComplete({
       system: EQUATION_SYSTEM,
-      temperature: 0.1,
       images: promptPayload(current.images),
       user: '请把图片中的公式转成 LaTeX。',
     })
@@ -339,9 +337,9 @@ export function EditorPane({
   }, [closeDialog, fail, onToast])
 
   const streamIntoPage = useCallback(
-    async (input: { system: string; user: string; images?: Array<{ mime: string; base64: string }> }, range: { from: number; to: number } | null, label: string) => {
+    async (input: { system: string; user: string; model?: string; images?: Array<{ mime: string; base64: string }> }, range: { from: number; to: number } | null, label: string) => {
       const editor = editorRef.current
-      if (!editor) return
+      if (!editor) return false
       setBusy(label)
       streamingRef.current = true
       let acc = ''
@@ -368,18 +366,24 @@ export function EditorPane({
           paint(false)
         }, 40)
       }
+      const onReset = () => {
+        acc = ''
+        if (queued) window.clearTimeout(queued)
+        queued = 0
+      }
       try {
-        const response = await window.zention.aiComplete(input, onDelta)
+        const response = await window.zention.aiComplete(input, onDelta, onReset)
         if (queued) window.clearTimeout(queued)
         if (!response.ok) {
           if (acc.trim()) paint(true)
           fail(response.error)
-          return
+          return false
         }
         acc = response.content
         paint(true)
         const body = editorRef.current?.getMarkdown()
         if (body != null) flush(body)
+        return true
       } finally {
         streamingRef.current = false
         setBusy('')

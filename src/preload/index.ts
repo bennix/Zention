@@ -14,11 +14,13 @@ const api: ZentionApi = {
   deletePage: (id) => ipcRenderer.invoke('pages:delete', id),
   pickImage: () => ipcRenderer.invoke('asset:pick'),
   saveImage: (payload) => ipcRenderer.invoke('asset:save', payload),
-  aiComplete: (input, onDelta) => {
+  aiComplete: (input, onDelta, onReset) => {
     if (!onDelta) return ipcRenderer.invoke('ai:complete', input)
     const streamId = crypto.randomUUID()
-    const listener = (_event: Electron.IpcRendererEvent, payload: { streamId?: string; delta?: string }) => {
-      if (payload.streamId === streamId && payload.delta) onDelta(payload.delta)
+    const listener = (_event: Electron.IpcRendererEvent, payload: { streamId?: string; delta?: string; reset?: boolean }) => {
+      if (payload.streamId !== streamId) return
+      if (payload.reset) onReset?.()
+      else if (payload.delta) onDelta(payload.delta)
     }
     ipcRenderer.on('ai:delta', listener)
     return ipcRenderer.invoke('ai:complete', { ...input, streamId }).finally(() => {
