@@ -19,11 +19,13 @@ export const DEFAULT_IMAGE_MODELS = [
 ] as const
 
 export interface UpdateStatus {
-  phase: 'available' | 'progress' | 'downloaded' | 'error'
+  phase: 'checking' | 'current' | 'available' | 'progress' | 'downloaded' | 'error'
   version?: string
   percent?: number
   message?: string
 }
+
+export type SyncDirection = 'remote' | 'local'
 
 export interface PageMeta {
   id: string
@@ -139,8 +141,10 @@ export interface ZentionApi {
   githubLogout(): Promise<Result<{ settings: SettingsView }>>
   githubCreateRepo(name: string): Promise<Result<{ settings: SettingsView; url: string; commit: string; pageCount: number; pulled: number; conflicts: number }>>
   githubLinkRepo(fullName: string): Promise<Result<{ settings: SettingsView; url: string; commit: string; pageCount: number; pulled: number; conflicts: number }>>
-  githubSync(): Promise<Result<{ url: string; commit: string; pageCount: number; pulled: number; conflicts: number }>>
+  githubSync(direction: SyncDirection): Promise<Result<{ url: string; commit: string; pageCount: number; pulled: number; conflicts: number }>>
   onGithubProgress(callback: (progress: SyncProgress) => void): () => void
+  appVersion(): Promise<Result<{ version: string }>>
+  checkUpdate(): Promise<Result<Record<string, never>>>
   openExternal(url: string): Promise<Result<Record<string, never>>>
   exportMarkdown(input: { title: string; markdown: string }): Promise<Result<{ canceled: boolean; file?: string; images?: number }>>
   exportPdf(input: { title: string; html: string }): Promise<Result<{ canceled: boolean; file?: string }>>

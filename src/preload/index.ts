@@ -41,7 +41,9 @@ const api: ZentionApi = {
   githubLogout: () => ipcRenderer.invoke('github:logout'),
   githubCreateRepo: (name) => ipcRenderer.invoke('github:create', name),
   githubLinkRepo: (fullName) => ipcRenderer.invoke('github:link', fullName),
-  githubSync: () => ipcRenderer.invoke('github:sync'),
+  githubSync: (direction) => ipcRenderer.invoke('github:sync', direction),
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
   onGithubProgress: (callback: (progress: SyncProgress) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: SyncProgress) => callback(progress)
     ipcRenderer.on('github:progress', listener)

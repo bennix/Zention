@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { LOCALES } from '../../../shared/i18n'
-import type { SettingsView } from '../../../shared/types'
+import type { SettingsView, UpdateStatus } from '../../../shared/types'
 import { useI18n } from '../i18n'
 
 export function SettingsDialog({
   settings,
+  version,
+  update,
+  onCheckUpdate,
+  onInstallUpdate,
   onClose,
   onSave,
   onLocale,
@@ -13,6 +17,10 @@ export function SettingsDialog({
   onToast,
 }: {
   settings: SettingsView
+  version: string
+  update: UpdateStatus | null
+  onCheckUpdate: () => void
+  onInstallUpdate: () => void
   onClose: () => void
   onLocale: (locale: string) => void
   onOpenGithub: () => void
@@ -162,6 +170,26 @@ export function SettingsDialog({
             {t('close')}
           </button>
         </header>
+        <section>
+          <h3>{t('updateSection')}</h3>
+          <p className="hint">{t('updateVersion', { version: version || '—' })}</p>
+          {update?.phase === 'checking' ? <p className="hint">{t('updateChecking')}</p> : null}
+          {update?.phase === 'current' ? <p className="test-ok">{t('updateCurrent', { version: update.version || version })}</p> : null}
+          {update?.phase === 'available' ? <p className="hint">{t('updateAvailable', { version: update.version ?? '' })}</p> : null}
+          {update?.phase === 'progress' ? <p className="hint">{t('updateProgress', { percent: update.percent ?? 0 })}</p> : null}
+          {update?.phase === 'downloaded' ? <p className="test-ok">{t('updateReady', { version: update.version ?? '' })}</p> : null}
+          {update?.phase === 'error' ? <p className="test-bad">{t('updateError', { detail: update.message ?? '' })}</p> : null}
+          <div className="row">
+            <button type="button" onClick={onCheckUpdate} disabled={update?.phase === 'checking' || update?.phase === 'progress'}>
+              {update?.phase === 'checking' ? t('updateChecking') : t('updateCheck')}
+            </button>
+            {update?.phase === 'downloaded' ? (
+              <button type="button" className="primary" onClick={onInstallUpdate}>
+                {t('updateRestart')}
+              </button>
+            ) : null}
+          </div>
+        </section>
         <label>
           {t('language')}
           <select value={locale} onChange={(event) => onLocale(event.target.value)}>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PageData, PageMeta, PagePatch, SettingsPatch, SettingsView, SyncProgress, UpdateStatus } from '../../shared/types'
+import type { PageData, PageMeta, PagePatch, SettingsPatch, SettingsView, SyncDirection, SyncProgress, UpdateStatus } from '../../shared/types'
 import { call } from './call'
 import { EditorPane, type EditorExport } from './components/EditorPane'
 import { NoteNav } from './components/NoteNav'
@@ -29,7 +29,9 @@ export default function App() {
   const [githubOpen, setGithubOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [syncChoice, setSyncChoice] = useState(false)
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
+  const [appVersion, setAppVersion] = useState('')
   const [booting, setBooting] = useState(true)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -165,6 +167,12 @@ export default function App() {
   useEffect(() => window.zention.onMarkdownOpen((filePath) => openMarkdownRef.current(filePath)), [])
 
   useEffect(() => {
+    void window.zention.appVersion().then((result) => {
+      if (result.ok) setAppVersion(result.version)
+    })
+  }, [])
+
+  useEffect(() => {
     if (pendingRequested) return
     pendingRequested = true
     void window.zention.takePendingMarkdown().then((filePath) => {
@@ -264,18 +272,23 @@ export default function App() {
     }
   }
 
-  const sync = async () => {
+  const sync = () => {
     if (!settings?.githubUser || !settings.githubRepo) {
       setGithubOpen(true)
       notify(t('syncNeedLogin'))
       return
     }
     if (syncing) return
+    setSyncChoice(true)
+  }
+
+  const runSync = async (direction: SyncDirection) => {
+    setSyncChoice(false)
     setSyncing(true)
     setSyncProgress({ percent: 0, text: t('syncReady') })
     try {
       await flushNotes()
-      const result = await window.zention.githubSync()
+      const result = await window.zention.githubSync(direction)
       if (!result.ok) {
         setSyncProgress(null)
         notify(result.error)
@@ -294,11 +307,7 @@ export default function App() {
             await openPage(listed.pages[0].id)
           }
         }
-        const extra = [
-          result.pulled ? t('pulled', { count: result.pulled }) : '',
-          result.conflicts ? t('merged', { count: result.conflicts }) : '',
-        ].filter(Boolean)
-        notify([t('syncDone', { count: result.pageCount }), ...extra].join(' · '))
+        notify(t(direction === 'remote' ? 'syncRemoteDone' : 'syncLocalDone', { count: result.pageCount }))
       }
     } catch (error) {
       setSyncProgress(null)
@@ -506,7 +515,7 @@ export default function App() {
         </div>
       </aside>
       <main>
-        {update ? (
+        {update && update.phase !== 'checking' && update.phase !== 'current' ? (
           <div className="banner update-banner">
             {update.phase === 'downloaded'
               ? t('updateReady', { version: update.version ?? '' })
@@ -631,6 +640,10 @@ export default function App() {
       {settingsOpen && (
         <SettingsDialog
           settings={settings}
+          version={appVersion}
+          update={update}
+          onCheckUpdate={() => void window.zention.checkUpdate()}
+          onInstallUpdate={() => void window.zention.installUpdate()}
           onClose={() => setSettingsOpen(false)}
           onSave={saveSettings}
           onLocale={(value) => void changeLocale(value)}
@@ -649,6 +662,27 @@ export default function App() {
           onToast={notify}
         />
       )}
+      {syncChoice ? (
+        <div className="modal-backdrop sync-choice" onMouseDown={() => setSyncChoice(false)}>
+          <div className="modal compact" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <h2>{t('syncChoose')}</h2>
+              <button type="button" onClick={() => setSyncChoice(false)}>
+                {t('close')}
+              </button>
+            </header>
+            <p className="hint">{t('syncChooseHint')}</p>
+            <div className="row">
+              <button type="button" onClick={() => void runSync('remote')}>
+                {t('syncRemote')}
+              </button>
+              <button type="button" onClick={() => void runSync('local')}>
+                {t('syncLocal')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {toast ? <div className="toast">{toast}</div> : null}
       {dragOver ? <div className="drop-mask">{t('dropMd')}</div> : null}
     </div>

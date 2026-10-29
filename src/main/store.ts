@@ -521,6 +521,49 @@ export async function readLocalPages(): Promise<Array<{ id: string; title: strin
   return out
 }
 
+export async function replaceWorkspace(
+  pages: Array<{ id: string; title: string; body: string; organize: PageOrganize | null }>,
+  assets: Array<{ name: string; bytes: Buffer }>,
+): Promise<void> {
+  const existing = await readIndex()
+  const previous = new Map(existing.map((page) => [page.id, page]))
+  const now = Date.now()
+  const next: PageMeta[] = []
+  for (const page of pages) {
+    assertId(page.id)
+    const title = page.title.replace(/\r?\n/g, ' ').trim().slice(0, 120) || '未命名'
+    const prior = previous.get(page.id)
+    const meta: PageMeta = {
+      id: page.id,
+      title,
+      createdAt: prior?.createdAt ?? now,
+      updatedAt: now,
+    }
+    applyOrganize(meta, page.organize ?? { parentId: null, folder: false, group: '', tags: [] })
+    await fs.writeFile(pageFile(page.id), page.body, 'utf8')
+    next.push(meta)
+  }
+  if (next.length === 0) {
+    next.push(await createPageRecord('未命名', ''))
+  }
+  const keep = new Set(next.map((page) => page.id))
+  for (const name of await fs.readdir(pagesDir()).catch(() => [] as string[])) {
+    if (!name.endsWith('.md')) continue
+    const id = name.slice(0, -3)
+    if (!keep.has(id)) await fs.rm(path.join(pagesDir(), name), { force: true })
+  }
+  await writeIndex(next)
+  const keepAssets = new Set<string>()
+  for (const asset of assets) {
+    await saveNamedAsset(asset.name, asset.bytes)
+    keepAssets.add(asset.name)
+  }
+  for (const name of await fs.readdir(assetsDir()).catch(() => [] as string[])) {
+    if (name.startsWith('.') || keepAssets.has(name)) continue
+    await fs.rm(path.join(assetsDir(), name), { force: true })
+  }
+}
+
 export async function writePageFromRemote(input: { id: string; title: string; body: string; organize?: PageOrganize | null }): Promise<'created' | 'updated'> {
   assertId(input.id)
   const title = input.title.replace(/\r?\n/g, ' ').trim().slice(0, 120) || '未命名'

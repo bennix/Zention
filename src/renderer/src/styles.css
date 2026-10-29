@@ -42,7 +42,9 @@ aside {
 .new-page { text-align: left; background: white; border: 1px solid var(--line); margin-bottom: 10px; }
 .new-page:hover, .page-row button:hover, .side-foot button:hover { background: #e7e3db; }
 aside nav { overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.page-row { display: flex; align-items: center; border-radius: 8px; }
+.page-row { display: flex; align-items: center; border-radius: 8px; cursor: grab; }
+.page-row.dragging { opacity: 0.4; }
+.page-row.drop-target { outline: 2px solid var(--accent); background: var(--accent-soft); }
 .page-row > button.page-name {
   flex: 1;
   min-width: 0;
@@ -306,6 +308,9 @@ main > .update-banner { margin: 16px 24px 0; }
 .scrim { position: fixed; inset: 0; border: 0; background: transparent; z-index: 19; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(44, 42, 38, 0.28); display: grid; place-items: center; z-index: 30; }
+.modal-backdrop.sync-choice { z-index: 50; }
+.sync-choice .row { flex-direction: column; align-items: stretch; }
+.sync-choice .row button { border: 1px solid var(--line); background: white; text-align: left; padding: 10px 12px; }
 .modal {
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);

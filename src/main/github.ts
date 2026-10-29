@@ -7,6 +7,7 @@ import {
   pageDigest,
   readLocalPages,
   readSyncState,
+  replaceWorkspace,
   saveNamedAsset,
   workspaceRoot,
   writePageFromRemote,
@@ -23,7 +24,7 @@ import { zenmuxFetch } from './ai'
 import { translate, type MessageKey } from '../shared/i18n'
 import { ensureGh } from './ghEnv'
 import { currentLocale } from './store'
-import type { GitHubRepo, GitHubUser, SettingsView, SyncProgress } from '../shared/types'
+import type { GitHubRepo, GitHubUser, SettingsView, SyncDirection, SyncProgress } from '../shared/types'
 
 export type SyncReporter = (progress: SyncProgress) => void
 
@@ -384,7 +385,65 @@ async function mergeAsset(name: string, remote: Buffer, last: string | undefined
   }
 }
 
-export async function syncWorkspace(onProgress?: SyncReporter): Promise<{ url: string; commit: string; pageCount: number; pulled: number; conflicts: number }> {
+async function overwriteLocal(
+  token: string,
+  owner: string,
+  repo: string,
+  parent: string,
+  onProgress?: SyncReporter,
+): Promise<{ pageCount: number }> {
+  say(onProgress, 24, 'syncReadRemote')
+  const commit = await gh(token, `/repos/${owner}/${repo}/git/commits/${parent}`)
+  const tree = await gh(token, `/repos/${owner}/${repo}/git/trees/${commit.tree.sha}?recursive=1`)
+  const entries = (tree.tree ?? []) as Array<{ path?: string; type?: string; sha?: string }>
+  const files = entries.filter((item) => item.type === 'blob' && item.path && item.sha)
+  const pendingPages: Array<{ rel: string; raw: string }> = []
+  const assets: Array<{ name: string; bytes: Buffer }> = []
+  let done = 0
+  for (const item of files) {
+    const rel = item.path!
+    done += 1
+    if (rel === '目录.md' || (!rel.startsWith('pages/') && !rel.startsWith('assets/'))) continue
+    say(onProgress, 28 + (done / Math.max(files.length, 1)) * 24, 'syncFetchFile', { done, total: files.length, name: rel })
+    const bytes = await blobBytes(token, owner, repo, item.sha!)
+    if (rel.startsWith('assets/')) {
+      const name = rel.slice('assets/'.length)
+      const ext = path.extname(name).slice(1).toLowerCase()
+      if (name.includes('/') || name.startsWith('.') || !['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) continue
+      assets.push({ name, bytes })
+      continue
+    }
+    if (rel.endsWith('.md')) pendingPages.push({ rel, raw: bytes.toString('utf8') })
+  }
+  const parsedPages = pendingPages.map((item) => ({ rel: item.rel, ...parseRemotePage(item.raw) }))
+  const idByPath = new Map<string, string>()
+  for (const parsed of parsedPages) if (parsed.id) idByPath.set(parsed.rel, parsed.id)
+  const used = new Set<string>()
+  const pages: Array<{ id: string; title: string; body: string; organize: PageOrganize | null }> = []
+  for (const parsed of parsedPages) {
+    const body = linksFromGithub(parsed.body, parsed.rel, idByPath)
+    let id = parsed.id && PAGE_ID.test(parsed.id) ? parsed.id.toLowerCase() : randomUUID()
+    if (used.has(id)) id = randomUUID()
+    used.add(id)
+    pages.push({ id, title: canonicalTitle(parsed.title), body, organize: parsed.organize })
+  }
+  if (pages.length === 0) throw new Error(translate(currentLocale(), 'syncNoRemote'))
+  say(onProgress, 70, 'syncPrepareUpload')
+  await replaceWorkspace(pages, assets)
+  const local = await readLocalPages()
+  const snapshotPages: Record<string, string> = {}
+  for (const page of local) snapshotPages[page.id] = page.digest
+  const snapshotAssets: Record<string, string> = {}
+  for (const asset of assets) snapshotAssets[asset.name] = createHash('sha256').update(asset.bytes).digest('hex')
+  await writeSyncState({ commit: parent, pages: snapshotPages, assets: snapshotAssets })
+  say(onProgress, 100, 'syncDoneAll', { count: pages.length })
+  return { pageCount: pages.length }
+}
+
+export async function syncWorkspace(
+  onProgress?: SyncReporter,
+  direction?: SyncDirection,
+): Promise<{ url: string; commit: string; pageCount: number; pulled: number; conflicts: number }> {
   const secrets = await getSecrets()
   const view = await viewSettings()
   if (!secrets.githubToken || !view.githubUser) throw new Error(translate(currentLocale(), 'ghNeedLogin'))
@@ -412,7 +471,18 @@ export async function syncWorkspace(onProgress?: SyncReporter): Promise<{ url: s
       await sleep(700)
     }
   }
-  const incoming = await pullRemote(token, repo.owner, repo.name, parent, onProgress)
+  if (direction === 'remote') {
+    if (!parent) throw new Error(translate(currentLocale(), 'syncNoRemote'))
+    const replaced = await overwriteLocal(token, repo.owner, repo.name, parent, onProgress)
+    return {
+      url: `https://github.com/${repo.owner}/${repo.name}`,
+      commit: parent,
+      pageCount: replaced.pageCount,
+      pulled: replaced.pageCount,
+      conflicts: 0,
+    }
+  }
+  const incoming = direction === 'local' ? { pulled: 0, conflicts: 0 } : await pullRemote(token, repo.owner, repo.name, parent, onProgress)
   say(onProgress, 54, 'syncPrepareUpload')
   const files = await listSyncFiles()
   const pageCount = files.filter((file) => file.path.startsWith('pages/')).length
@@ -448,10 +518,19 @@ export async function syncWorkspace(onProgress?: SyncReporter): Promise<{ url: s
   })
   say(onProgress, 96, 'syncUpdateBranch', { branch })
   if (parent) {
-    await gh(token, `${base}/git/refs/heads/${branch}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ sha: commit.sha }),
-    })
+    try {
+      await gh(token, `${base}/git/refs/heads/${branch}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sha: commit.sha }),
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (direction !== 'local' || !/GitHub 422/.test(message)) throw error
+      await gh(token, `${base}/git/refs/heads/${branch}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sha: commit.sha, force: true }),
+      })
+    }
   } else {
     try {
       await gh(token, `${base}/git/refs`, {

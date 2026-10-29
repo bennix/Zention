@@ -224,10 +224,7 @@ export function GithubDialog({
                   type="button"
                   className="primary create-repo"
                   disabled={!!busy || syncing}
-                  onClick={() => {
-                    setProgress({ percent: 0, text: t('syncReady') })
-                    onSync()
-                  }}
+                  onClick={() => onSync()}
                 >
                   {syncing ? t('syncing', { percent: progress?.percent ?? 0 }) : t('sync')}
                 </button>

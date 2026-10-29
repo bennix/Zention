@@ -10,7 +10,7 @@ import { createAndSync, foldRemoteCopies, linkAndSync, loginWithGhCli, loginWith
 import { ensureGh, watchGhSetup } from './ghEnv'
 import { exportMarkdown, exportPdf } from './export'
 import { decodeExternalToken, importMarkdownPage, readExternalMarkdown, resolveExternalImage, saveExternalAs, saveExternalImage, writeExternalMarkdown } from './external'
-import { installDownloadedUpdate, setupAutoUpdate } from './update'
+import { checkForAppUpdate, installDownloadedUpdate, setupAutoUpdate } from './update'
 import {
   createPage,
   deletePage,
@@ -115,6 +115,13 @@ function emitSyncProgress(progress: SyncProgress): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('app:version', () => guard(async () => ({ version: app.getVersion() })))
+  ipcMain.handle('update:check', () =>
+    guard(async () => {
+      await checkForAppUpdate()
+      return {}
+    }),
+  )
   ipcMain.handle('update:install', () =>
     guard(async () => {
       installDownloadedUpdate()
@@ -211,10 +218,11 @@ function registerIpc(): void {
   ipcMain.handle('github:logout', () => guard(async () => ({ settings: await logoutGitHub() })))
   ipcMain.handle('github:create', (_event, name: string) => guard(() => createAndSync(name, emitSyncProgress)))
   ipcMain.handle('github:link', (_event, fullName: string) => guard(() => linkAndSync(fullName, emitSyncProgress)))
-  ipcMain.handle('github:sync', () =>
+  ipcMain.handle('github:sync', (_event, direction: 'remote' | 'local') =>
     guard(async () => {
       try {
-        return await syncWorkspace(emitSyncProgress)
+        if (direction !== 'remote' && direction !== 'local') throw new Error(translate(currentLocale(), 'syncChoose'))
+        return await syncWorkspace(emitSyncProgress, direction)
       } catch (error) {
         console.error('[github-sync]', error instanceof Error ? error.message : error)
         throw error

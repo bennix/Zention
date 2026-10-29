@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { PageMeta, PagePatch } from '../../../shared/types'
 import { useI18n } from '../i18n'
 
@@ -55,6 +55,8 @@ export function NoteNav({
 }) {
   const { t } = useI18n()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [dropId, setDropId] = useState<string | null>(null)
+  const dragId = useRef<string | null>(null)
   const [tag, setTag] = useState('')
   const [menu, setMenu] = useState<{ id: string; mode: 'main' | 'move' | 'group' | 'tag'; top: number; left: number } | null>(null)
   const [draft, setDraft] = useState('')
@@ -64,6 +66,11 @@ export function NoteNav({
   const tags = useMemo(() => [...new Set(pages.flatMap((page) => page.tags ?? []))].sort((a, b) => a.localeCompare(b, 'zh')), [pages])
   const current = pages.find((page) => page.id === menu?.id) ?? null
   const blocked = current ? descendantIds(pages, current.id) : new Set<string>()
+
+  const canDropOn = (targetId: string) => {
+    const source = dragId.current
+    return !!source && source !== targetId && !descendantIds(pages, source).has(targetId)
+  }
 
   const openMenu = (id: string, anchor: HTMLElement, mode: 'main' | 'move' | 'group' | 'tag') => {
     const rect = anchor.getBoundingClientRect()
@@ -90,7 +97,41 @@ export function NoteNav({
         const label = node.page.title.trim() || t('untitled')
         return [
           <div key={node.page.id} className="page-block" style={{ marginInlineStart: depth * 12 }}>
-            <div className={node.page.id === activeId ? 'page-row active' : 'page-row'}>
+            <div
+              className={['page-row', node.page.id === activeId ? 'active' : '', node.page.id === dropId ? 'drop-target' : '', node.page.id === dragId.current ? 'dragging' : ''].filter(Boolean).join(' ')}
+              draggable
+              title={t('dragInto')}
+              onDragStart={(event) => {
+                dragId.current = node.page.id
+                event.dataTransfer.setData('text/plain', node.page.id)
+                event.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragOver={(event) => {
+                if (!canDropOn(node.page.id)) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                if (dropId !== node.page.id) setDropId(node.page.id)
+              }}
+              onDragLeave={(event) => {
+                const next = event.relatedTarget
+                if (next instanceof Node && event.currentTarget.contains(next)) return
+                if (dropId === node.page.id) setDropId(null)
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                const source = event.dataTransfer.getData('text/plain') || dragId.current
+                if (source && canDropOn(node.page.id)) {
+                  setCollapsed((state) => ({ ...state, [node.page.id]: false }))
+                  onOrganize(source, { parentId: node.page.id })
+                }
+                dragId.current = null
+                setDropId(null)
+              }}
+              onDragEnd={() => {
+                dragId.current = null
+                setDropId(null)
+              }}
+            >
               {folder ? (
                 <button
                   type="button"
