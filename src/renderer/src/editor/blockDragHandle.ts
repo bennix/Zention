@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { dropPoint } from '@tiptap/pm/transform'
 import type { EditorView } from '@tiptap/pm/view'
 import { t } from '../i18n'
 
@@ -29,9 +30,16 @@ export const BlockDragHandle = Extension.create({
   },
 })
 
+function copyDrag(event: DragEvent): boolean {
+  return event.ctrlKey || event.altKey
+}
+
 function dragHandlePlugin(editor: Editor): Plugin {
   return new Plugin({
     key: new PluginKey('blockDragHandle'),
+    props: {
+      dragCopies: (event) => copyDrag(event),
+    },
     view(view) {
       const container = view.dom.parentElement
       const handle = document.createElement('div')
@@ -53,12 +61,15 @@ function dragHandlePlugin(editor: Editor): Plugin {
       grip.setAttribute('aria-label', t('gutterDrag'))
 
       handle.append(plus, grip)
+      const marker = document.createElement('div')
+      marker.className = 'md-block-insert'
+      marker.style.display = 'none'
       const menu = document.createElement('div')
       menu.className = 'md-block-menu'
       menu.style.display = 'none'
       if (container) {
         if (!container.style.position) container.style.position = 'relative'
-        container.append(handle, menu)
+        container.append(handle, marker, menu)
       }
 
       let hoverPos: number | null = null
@@ -101,8 +112,8 @@ function dragHandlePlugin(editor: Editor): Plugin {
         const selection = selectHovered()
         if (!selection) return event.preventDefault()
         view.dispatch(view.state.tr.setSelection(selection))
-        view.dragging = { slice: selection.content(), move: true }
-        event.dataTransfer.effectAllowed = 'move'
+        view.dragging = { slice: selection.content(), move: !copyDrag(event) }
+        event.dataTransfer.effectAllowed = 'copyMove'
         event.dataTransfer.setData('text/plain', ' ')
         const dom = view.nodeDOM(selection.from)
         if (dom instanceof HTMLElement) {
@@ -110,8 +121,71 @@ function dragHandlePlugin(editor: Editor): Plugin {
           event.dataTransfer.setDragImage(dom, 0, 0)
         }
       }
+      const hideMarker = () => {
+        marker.style.display = 'none'
+        marker.classList.remove('copy')
+        container?.classList.remove('showing-insert')
+      }
+      const showMarker = (event: DragEvent) => {
+        if (!container || !view.dragging?.slice) return
+        const found = view.posAtCoords({ left: event.clientX, top: event.clientY })
+        if (!found) return hideMarker()
+        const point = dropPoint(view.state.doc, found.pos, view.dragging.slice)
+        const pos = point ?? found.pos
+        const $pos = view.state.doc.resolve(pos)
+        const containerRect = container.getBoundingClientRect()
+        const before = $pos.nodeBefore ? view.nodeDOM($pos.pos - $pos.nodeBefore.nodeSize) : null
+        const after = $pos.nodeAfter ? view.nodeDOM($pos.pos) : null
+        const box = (node: unknown) => (node instanceof HTMLElement ? node.getBoundingClientRect() : null)
+        const above = box(before)
+        const below = box(after)
+        let top = 0
+        let left = 0
+        let width = 0
+        if (above && below) {
+          top = (above.bottom + below.top) / 2 - containerRect.top + container.scrollTop
+          left = Math.min(above.left, below.left) - containerRect.left
+          width = Math.max(above.width, below.width)
+        } else if (above) {
+          top = above.bottom - containerRect.top + container.scrollTop
+          left = above.left - containerRect.left
+          width = above.width
+        } else if (below) {
+          top = below.top - containerRect.top + container.scrollTop
+          left = below.left - containerRect.left
+          width = below.width
+        } else {
+          const coords = view.coordsAtPos(pos)
+          top = coords.top - containerRect.top + container.scrollTop
+          left = coords.left - containerRect.left
+          width = 160
+        }
+        marker.style.display = 'block'
+        marker.style.top = `${top}px`
+        marker.style.left = `${left}px`
+        marker.style.width = `${Math.max(width, 24)}px`
+        marker.classList.toggle('copy', copyDrag(event))
+        container.classList.add('showing-insert')
+      }
+      let lastOver: DragEvent | null = null
+      const onDragOver = (event: DragEvent) => {
+        if (!view.dragging?.slice || !event.dataTransfer) return
+        lastOver = event
+        event.preventDefault()
+        const copying = copyDrag(event)
+        view.dragging.move = !copying
+        event.dataTransfer.dropEffect = copying ? 'copy' : 'move'
+        showMarker(event)
+      }
+      const onCopyKey = (event: KeyboardEvent) => {
+        if (!lastOver || marker.style.display === 'none') return
+        if (event.key !== 'Control' && event.key !== 'Alt') return
+        marker.classList.toggle('copy', event.type === 'keydown' || event.ctrlKey || event.altKey)
+      }
       const clearDragging = () => {
         view.dom.querySelectorAll('.md-block-dragging').forEach((node) => node.classList.remove('md-block-dragging'))
+        lastOver = null
+        hideMarker()
       }
       const onPlusClick = () => {
         hideMenu()
@@ -181,7 +255,10 @@ function dragHandlePlugin(editor: Editor): Plugin {
       handle.addEventListener('mouseleave', scheduleHide)
       grip.addEventListener('dragstart', onDragStart)
       grip.addEventListener('dragend', clearDragging)
+      view.dom.addEventListener('dragover', onDragOver)
       view.dom.addEventListener('drop', clearDragging)
+      document.addEventListener('keydown', onCopyKey)
+      document.addEventListener('keyup', onCopyKey)
       grip.addEventListener('click', () => (menu.style.display === 'block' ? hideMenu() : openMenu()))
       plus.addEventListener('click', onPlusClick)
       document.addEventListener('mousedown', onDocMouseDown, true)
@@ -196,7 +273,10 @@ function dragHandlePlugin(editor: Editor): Plugin {
           view.dom.removeEventListener('mouseleave', scheduleHide)
           document.removeEventListener('mousedown', onDocMouseDown, true)
           grip.removeEventListener('dragend', clearDragging)
+          view.dom.removeEventListener('dragover', onDragOver)
           view.dom.removeEventListener('drop', clearDragging)
+          document.removeEventListener('keydown', onCopyKey)
+          document.removeEventListener('keyup', onCopyKey)
           clearDragging()
           handle.remove()
           menu.remove()

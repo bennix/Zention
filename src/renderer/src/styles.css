@@ -181,6 +181,45 @@ main > .update-banner { margin: 16px 24px 0; }
   outline-offset: 6px;
   border-radius: 8px;
 }
+.editor-wrap.showing-insert > .zention-dropcursor { visibility: hidden; }
+.md-block-insert {
+  position: absolute;
+  z-index: 6;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 999px;
+  background: #0f7b6c;
+  box-shadow: 0 0 0 5px rgba(15, 123, 108, 0.16);
+  pointer-events: none;
+}
+.md-block-insert::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: #0f7b6c;
+}
+.md-block-insert.copy::after {
+  content: "+";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translate(8px, -50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  color: #0f7b6c;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 1px rgba(15, 123, 108, 0.35);
+}
 .zention-dropcursor {
   border-radius: 999px;
   background: #0f7b6c;
