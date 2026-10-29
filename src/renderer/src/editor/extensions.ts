@@ -12,17 +12,21 @@ import { createLocalImage } from './image'
 import { BlockEquation, InlineEquation } from './equation'
 import { BlockDragHandle } from './blockDragHandle'
 import { BlockKeymap } from './blockKeymap'
+import { PageLink } from './pageLink'
 import { SelectionSlash, SlashCommand, type SlashController, type SlashItem } from './slash'
+import type { PageMeta } from '../../../shared/types'
 import { t } from '../i18n'
 
 export function buildExtensions(options: {
   slashController: SlashController
   slashItems: () => SlashItem[]
+  pageLinkController: SlashController
+  pages: () => PageMeta[]
   external?: boolean
 }): AnyExtension[] {
   return [
     StarterKit.configure({
-      link: { openOnClick: false },
+      link: { openOnClick: false, protocols: ['zention-page'] },
       codeBlock: false,
       underline: false,
       dropcursor: { color: false, width: 6, class: 'zention-dropcursor' },
@@ -46,6 +50,7 @@ export function buildExtensions(options: {
       placeholder: () => t('editorPlaceholder'),
     }),
     SlashCommand.configure({ controller: options.slashController, items: options.slashItems }),
+    PageLink.configure({ controller: options.pageLinkController, pages: options.pages }),
     SelectionSlash,
     BlockKeymap,
     BlockDragHandle,

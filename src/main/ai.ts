@@ -68,8 +68,8 @@ function socketDropped(error: unknown): boolean {
   const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code ?? '') : ''
   const message = error instanceof Error ? error.message : String(error)
   return (
-    ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'ECONNABORTED'].includes(code) ||
-    /socket hang up|ECONNRESET|aborted|ERR_CONNECTION_|ERR_NETWORK|ERR_EMPTY_RESPONSE|ERR_SOCKET|ERR_TIMED_OUT/i.test(`${code} ${message}`)
+    ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN', 'EAI_FAIL', 'ENOTFOUND', 'ENETUNREACH', 'ENETDOWN', 'EHOSTUNREACH', 'EHOSTDOWN', 'ECONNABORTED', 'EPROTO'].includes(code) ||
+    /socket hang up|ECONNRESET|ENOTFOUND|getaddrinfo|aborted|disconnected before secure|ERR_CONNECTION_|ERR_NETWORK|ERR_EMPTY_RESPONSE|ERR_SOCKET|ERR_TIMED_OUT|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED/i.test(`${code} ${message}`)
   )
 }
 
@@ -136,7 +136,7 @@ export async function zenmuxFetch(
   init: RequestInit = {},
   onChunk?: (chunk: Buffer) => void,
   onDiscard?: () => void,
-  routeHint?: { transport?: 'node'; timeoutMs?: number },
+  routeHint?: { transport?: 'node'; timeoutMs?: number; family?: 4 },
 ): Promise<Response> {
   const headers = new Headers(init.headers)
   if (!headers.has('User-Agent')) headers.set('User-Agent', 'Zention')
@@ -144,9 +144,10 @@ export async function zenmuxFetch(
     init.body == null ? undefined : Buffer.from(typeof init.body === 'string' ? init.body : String(init.body))
   const timeoutMs = routeHint?.timeoutMs ?? 180_000
   const forceNode = routeHint?.transport === 'node'
+  const attempts = forceNode ? 6 : 4
 
   let skipChromium = false
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const secrets = await getSecrets()
     const preference = proxyPreference !== undefined ? proxyPreference : secrets.proxy
     const explicit = typeof preference === 'string' ? preference.trim() : ''
@@ -165,10 +166,11 @@ export async function zenmuxFetch(
             onChunk,
             timeoutMs,
             forceNode,
+            routeHint?.family,
           ))
     } catch (error) {
       if (error instanceof RetryableDisconnect && /ERR_INVALID_ARGUMENT/i.test(error.detail)) skipChromium = true
-      if (!(error instanceof RetryableDisconnect) || attempt === 3) {
+      if (!(error instanceof RetryableDisconnect) || attempt === attempts - 1) {
         if (error instanceof RetryableDisconnect) throw netFailure(error.detail, error.via)
         throw error
       }
@@ -181,6 +183,18 @@ export async function zenmuxFetch(
   throw netFailure('', 'direct')
 }
 
+function jsonReady(chunks: Buffer[]): boolean {
+  if (!chunks.length) return false
+  const text = Buffer.concat(chunks).toString('utf8').trim()
+  if (!text.startsWith('{') || !text.endsWith('}')) return false
+  try {
+    JSON.parse(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function nodeExchange(
   url: string,
   method: string,
@@ -191,6 +205,7 @@ function nodeExchange(
   onChunk?: (chunk: Buffer) => void,
   timeoutMs = 180_000,
   retryTimeout = false,
+  family?: 4,
 ): Promise<Response> {
   const target = new URL(url)
   const sent = new Headers(headers)
@@ -222,7 +237,7 @@ function nodeExchange(
           else reject(new Error(msg('netTimeout')))
           return
         }
-        if (exchangeComplete(chunks)) {
+        if (exchangeComplete(chunks) || jsonReady(chunks)) {
           resolve(new Response(Buffer.concat(chunks), { status: statusFor(chunks, 200) }))
           return
         }
@@ -242,6 +257,7 @@ function nodeExchange(
         method,
         headers: headerRecord(sent),
         agent: agent ?? false,
+        ...(family ? { family } : {}),
       },
       (res) => {
         const aborted = Object.assign(new Error('aborted'), { code: 'ECONNRESET' })
@@ -250,11 +266,11 @@ function nodeExchange(
           onChunk?.(chunk)
         })
         res.on('aborted', () => {
-          if (exchangeComplete(chunks)) succeed(res.statusCode ?? 200, res.headers)
+          if (exchangeComplete(chunks) || jsonReady(chunks)) succeed(res.statusCode ?? 200, res.headers)
           else fail(aborted)
         })
         res.on('end', () => {
-          if (res.aborted && !exchangeComplete(chunks)) {
+          if (res.aborted && !exchangeComplete(chunks) && !jsonReady(chunks)) {
             fail(aborted)
             return
           }
@@ -264,7 +280,7 @@ function nodeExchange(
       },
     )
     req.on('socket', (socket) => {
-      socket.setKeepAlive(true, 10_000)
+      socket.setKeepAlive(false)
       socket.setNoDelay(true)
     })
     wall = setTimeout(() => {

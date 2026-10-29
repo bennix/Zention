@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor, Range } from '@tiptap/core'
+import type { PageMeta } from '../../../shared/types'
+import { pageIdFromHref } from '../../../shared/pages'
 import { beginAiHistory, tagAiHistory } from '../editor/aiHistory'
+import { citedContext } from '../editor/citations'
 import { instructionFor, rewritePrompt } from '../editor/rewrite'
 import { buildExtensions } from '../editor/extensions'
 import { latexFromModel, renderLatexToHtml } from '../editor/latex'
@@ -9,6 +12,7 @@ import { codeBlockPos, requestCodeIndent } from '../editor/codeIndent'
 import { buildSlashItems, mergeSelectionIntoBlock, selectionToCodeBlock, type SlashActions, type SlashController, type SlashMenuState, type SelectionSlashDetail } from '../editor/slash'
 import { registerFlush } from '../flush'
 import { AttachmentBar, imageFiles, revokePromptImages, takePromptImages, type PromptImage } from './Attachments'
+import { MentionField } from './MentionField'
 import { SelectionMenu, SlashMenu, type SlashMenuHandle } from './Menus'
 import { useI18n } from '../i18n'
 import { decorateExportHtml } from '../exportHtml'
@@ -108,6 +112,8 @@ function blockPoint(editor: Editor, pos: number, place: 'above' | 'below'): numb
 export function EditorPane({
   pageId,
   markdown,
+  pages = [],
+  onOpenPage,
   onChange,
   onToast,
   onNeedKey,
@@ -116,6 +122,8 @@ export function EditorPane({
 }: {
   pageId: string
   markdown: string
+  pages?: PageMeta[]
+  onOpenPage?: (id: string) => void
   onChange: (markdown: string) => void
   onToast: (message: string) => void
   onNeedKey: () => void
@@ -124,10 +132,16 @@ export function EditorPane({
 }) {
   const { t } = useI18n()
   const [slash, setSlash] = useState<SlashMenuState | null>(null)
+  const [pageLink, setPageLink] = useState<SlashMenuState | null>(null)
   const [selection, setSelection] = useState<SelectionSlashDetail | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [busy, setBusy] = useState('')
   const slashMenuRef = useRef<SlashMenuHandle>(null)
+  const pageLinkMenuRef = useRef<SlashMenuHandle>(null)
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
+  const openPageRef = useRef(onOpenPage)
+  openPageRef.current = onOpenPage
   const editorRef = useRef<Editor | null>(null)
   const dialogRef = useRef<Dialog | null>(null)
   dialogRef.current = dialog
@@ -257,6 +271,7 @@ export function EditorPane({
     let latex = current.latex.trim()
     if (current.instruction.trim() || current.images.length) {
       setBusy(current.images.length ? t('busyRecognize') : t('busyFormula'))
+      const cited = await citedContext(current.instruction)
       const response = await window.zention.aiComplete({
         system: EQUATION_SYSTEM,
         images: current.images.length ? promptPayload(current.images) : undefined,
@@ -266,7 +281,7 @@ export function EditorPane({
           latex ? `已有公式：\n${latex}` : '',
         ]
           .filter(Boolean)
-          .join('\n\n'),
+          .join('\n\n') + cited,
       })
       setBusy('')
       if (!response.ok) {
@@ -396,11 +411,12 @@ export function EditorPane({
   const writeAtCursor = useCallback(
     async (instruction: string, source: string, images: PromptImage[] = []) => {
       const ask = instruction.trim() || '请根据附上的图片来写。'
+      const cited = await citedContext(ask)
       await streamIntoPage(
         {
           system: REWRITE_SYSTEM,
           images: images.length ? promptPayload(images) : undefined,
-          user: source ? `指令：${ask}\n\n已有内容：\n${source}` : `指令：${ask}`,
+          user: (source ? `指令：${ask}\n\n已有内容：\n${source}` : `指令：${ask}`) + cited,
         },
         null,
         t('busyWrite'),
@@ -412,11 +428,12 @@ export function EditorPane({
   const replaceRange = useCallback(
     async (from: number, to: number, text: string, instruction: string, images: PromptImage[] = []) => {
       const ask = instruction.trim() || '请根据附上的图片改写。'
+      const cited = await citedContext(ask)
       await streamIntoPage(
         {
           system: REWRITE_SYSTEM,
           images: images.length ? promptPayload(images) : undefined,
-          user: `指令：${rewritePrompt(ask)}\n\n原文（Markdown，必须保留格式）：\n${text}`,
+          user: `指令：${rewritePrompt(ask)}\n\n原文（Markdown，必须保留格式）：\n${text}${cited}`,
         },
         { from, to },
         t('busyRewrite'),
@@ -505,13 +522,25 @@ export function EditorPane({
     [],
   )
 
+  const pageLinkController = useMemo<SlashController>(
+    () => ({
+      onOpen: (state) => setPageLink(state),
+      onUpdate: (state) => setPageLink(state),
+      onKeyDown: (event) => pageLinkMenuRef.current?.handleKey(event) ?? false,
+      onClose: () => setPageLink(null),
+    }),
+    [],
+  )
+
   const extensions = useMemo(
     () => buildExtensions({
       slashController: controller,
       slashItems: () => buildSlashItems(actionsRef.current),
+      pageLinkController,
+      pages: () => pagesRef.current,
       external,
     }),
-    [controller, external],
+    [controller, external, pageLinkController],
   )
 
   const editor = useEditor({
@@ -525,7 +554,9 @@ export function EditorPane({
         const href = (event.target as HTMLElement | null)?.closest('a')?.getAttribute('href')
         if (!href) return false
         event.preventDefault()
-        void window.zention.openExternal(href)
+        const linked = pageIdFromHref(href)
+        if (linked) openPageRef.current?.(linked)
+        else void window.zention.openExternal(href)
         return true
       },
     },
@@ -534,6 +565,25 @@ export function EditorPane({
 
   useEffect(() => {
     editorRef.current = editor
+  }, [editor])
+
+  useEffect(() => {
+    const root = editor?.view.dom
+    if (!root) return
+    const onClick = (event: MouseEvent) => {
+      if (event.button !== 0) return
+      const anchor = (event.target as HTMLElement | null)?.closest('a')
+      if (!anchor || !root.contains(anchor)) return
+      const href = anchor.getAttribute('href') || anchor.href || ''
+      const linked = pageIdFromHref(href)
+      if (!linked && !href) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (linked) openPageRef.current?.(linked)
+      else void window.zention.openExternal(href)
+    }
+    root.addEventListener('click', onClick, true)
+    return () => root.removeEventListener('click', onClick, true)
   }, [editor])
 
   useEffect(() => {
@@ -599,6 +649,7 @@ export function EditorPane({
     <div className="editor-wrap">
       <EditorContent editor={editor} />
       <SlashMenu ref={slashMenuRef} state={slash} onDismiss={() => setSlash(null)} />
+      <SlashMenu ref={pageLinkMenuRef} state={pageLink} onDismiss={() => setPageLink(null)} />
       <SelectionMenu detail={selection} onPick={pickSelection} onClose={() => setSelection(null)} />
       {dialog ? (
         <DialogView
@@ -607,6 +658,7 @@ export function EditorPane({
           onChange={setDialog}
           onClose={closeDialog}
           onPasteImage={addDialogImages}
+          pages={pages}
           onToast={onToast}
           onRun={() => {
             const current = dialog
@@ -651,11 +703,13 @@ function DialogView({
   onChange,
   onClose,
   onPasteImage,
+  pages,
   onToast,
   onRun,
 }: {
   dialog: Dialog
   busy: string
+  pages: PageMeta[]
   onChange: (dialog: Dialog) => void
   onClose: () => void
   onPasteImage: (files: File[]) => void
@@ -706,12 +760,14 @@ function DialogView({
         </header>
         {dialog.kind === 'insert' || dialog.kind === 'replace' ? (
           <>
-            <textarea
+            <p className="hint">{t('mentionHint')}</p>
+            <MentionField
               autoFocus
               rows={5}
+              pages={pages}
               placeholder={t('promptPh')}
               value={dialog.instruction}
-              onChange={(event) => onChange({ ...dialog, instruction: event.target.value })}
+              onChange={(instruction) => onChange({ ...dialog, instruction })}
             />
             <AttachmentBar
               images={dialog.images}
@@ -750,11 +806,12 @@ function DialogView({
             ) : null}
             <label>
               {t('eqAiLabel')}
-              <textarea
+              <MentionField
                 rows={3}
+                pages={pages}
                 placeholder={t('formulaPh')}
                 value={dialog.instruction}
-                onChange={(event) => onChange({ ...dialog, instruction: event.target.value })}
+                onChange={(instruction) => onChange({ ...dialog, instruction })}
               />
             </label>
             <AttachmentBar

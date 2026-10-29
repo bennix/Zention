@@ -8,10 +8,16 @@ export function SettingsDialog({
   onClose,
   onSave,
   onLocale,
+  onOpenGithub,
+  onGithubChange,
+  onToast,
 }: {
   settings: SettingsView
   onClose: () => void
   onLocale: (locale: string) => void
+  onOpenGithub: () => void
+  onGithubChange: (settings: SettingsView) => void
+  onToast: (message: string) => void
   onSave: (
     patch: {
       apiKey?: string
@@ -42,6 +48,7 @@ export function SettingsDialog({
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState('')
   const [reports, setReports] = useState<Record<string, { ok: boolean; text: string }>>({})
+  const [githubBusy, setGithubBusy] = useState(false)
 
   const runTest = async (kind: 'key' | 'chat' | 'image', model?: string) => {
     const id = kind === 'key' ? 'key' : `${kind}:${model}`
@@ -238,6 +245,47 @@ export function SettingsDialog({
           kind="image"
           note={t('imageNote')}
         />
+        <section>
+          <h3>{t('ghSection')}</h3>
+          {settings.githubUser ? (
+            <div className="user-card">
+              {settings.githubUser.avatarUrl ? <img src={settings.githubUser.avatarUrl} alt="" /> : null}
+              <div>
+                <strong>{settings.githubUser.name || settings.githubUser.login}</strong>
+                <span>@{settings.githubUser.login}</span>
+              </div>
+              <button
+                type="button"
+                disabled={githubBusy}
+                onClick={() => {
+                  setGithubBusy(true)
+                  void window.zention.githubLogout().then((result) => {
+                    setGithubBusy(false)
+                    if (!result.ok) {
+                      onToast(result.error)
+                      return
+                    }
+                    onGithubChange(result.settings)
+                  })
+                }}
+              >
+                {t('logout')}
+              </button>
+            </div>
+          ) : (
+            <p className="hint">{t('ghNoAccount')}</p>
+          )}
+          <p className="hint">
+            {settings.githubRepo
+              ? t('syncTarget', { repo: `${settings.githubRepo.owner}/${settings.githubRepo.name}`, branch: settings.githubRepo.branch })
+              : t('ghNoRepo')}
+          </p>
+          <div className="row">
+            <button type="button" onClick={onOpenGithub}>
+              {t('ghManage')}
+            </button>
+          </div>
+        </section>
         <footer>
           {settings.hasApiKey && (
             <button

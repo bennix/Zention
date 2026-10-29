@@ -273,6 +273,7 @@ export function buildSlashItems(actions: SlashActions): SlashItem[] {
       run: (e, r) => void blockChain(e, r).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
     },
     { id: 'hr', label: t('slashHr'), keywords: ['divider', 'hr'], run: (e, r) => void blockChain(e, r).setHorizontalRule().run() },
+    { id: 'page-link', label: t('slashPageLink'), keywords: ['link', 'wiki', '链接', '笔记', '[['], run: (e, r) => void chain(e, r).insertContent('[[').run() },
     {
       id: 'image-file',
       label: t('slashImage'),

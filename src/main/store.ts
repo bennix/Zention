@@ -7,6 +7,7 @@ import { normalizeLocale, translate, type MessageKey } from '../shared/i18n'
 import { currentLocale, setCurrentLocale } from './locale'
 export { currentLocale }
 import { normalizeProxyUrl } from './proxy'
+import { linksForGithub, markerFor, organizeKey, organizeOf, type PageOrganize } from '../shared/pages'
 import {
   DEFAULT_CHAT_MODELS,
   DEFAULT_IMAGE_MODELS,
@@ -16,6 +17,7 @@ import {
   type GitHubUser,
   type PageData,
   type PageMeta,
+  type PagePatch,
   type SettingsPatch,
   type SettingsView,
 } from '../shared/types'
@@ -361,12 +363,79 @@ export async function savePage(id: string, body: string): Promise<void> {
   await writeIndex(pages)
 }
 
-export async function createPage(title = '未命名'): Promise<PageData> {
+export async function createPage(title = '未命名', parentId?: string | null): Promise<PageData> {
   const meta = await createPageRecord(title, '')
   const pages = await readIndex()
+  if (parentId) {
+    const parent = pages.find((page) => page.id === parentId)
+    if (parent) {
+      parent.folder = true
+      meta.parentId = parent.id
+    }
+  }
   pages.unshift(meta)
   await writeIndex(pages)
   return { ...meta, body: '' }
+}
+
+function childIds(pages: PageMeta[], id: string): Set<string> {
+  const out = new Set<string>()
+  const stack = pages.filter((page) => page.parentId === id).map((page) => page.id)
+  while (stack.length) {
+    const current = stack.pop()
+    if (!current || out.has(current)) continue
+    out.add(current)
+    for (const page of pages) if (page.parentId === current) stack.push(page.id)
+  }
+  return out
+}
+
+function applyOrganize(meta: PageMeta, org: PageOrganize): void {
+  if (org.parentId) meta.parentId = org.parentId
+  else delete meta.parentId
+  if (org.folder) meta.folder = true
+  else delete meta.folder
+  if (org.group) meta.group = org.group
+  else delete meta.group
+  if (org.tags.length) meta.tags = org.tags
+  else delete meta.tags
+}
+
+export async function organizePage(id: string, patch: PagePatch): Promise<PageMeta[]> {
+  const pages = await readIndex()
+  const meta = pages.find((page) => page.id === id)
+  if (!meta) throw new Error(translate(currentLocale(), 'pageMissing'))
+  const next = organizeOf(meta)
+  if (patch.folder !== undefined) next.folder = patch.folder
+  if (patch.group !== undefined) next.group = cleanStoredGroup(patch.group)
+  if (patch.tags !== undefined) next.tags = organizeOf({ tags: patch.tags }).tags
+  if (patch.parentId !== undefined) {
+    if (!patch.parentId) next.parentId = null
+    else {
+      const parent = pages.find((page) => page.id === patch.parentId)
+      if (!parent || parent.id === id || childIds(pages, id).has(parent.id)) throw new Error(translate(currentLocale(), 'badParent'))
+      let depth = 0
+      let cursor: PageMeta | undefined = parent
+      const seen = new Set<string>()
+      while (cursor?.parentId && !seen.has(cursor.id) && depth < 12) {
+        seen.add(cursor.id)
+        depth += 1
+        cursor = pages.find((page) => page.id === cursor?.parentId)
+      }
+      if (depth >= 8) throw new Error(translate(currentLocale(), 'badParent'))
+      parent.folder = true
+      next.parentId = parent.id
+    }
+  }
+  if (!next.folder && pages.some((page) => page.parentId === id)) throw new Error(translate(currentLocale(), 'folderHasChildren'))
+  applyOrganize(meta, next)
+  meta.updatedAt = Date.now()
+  await writeIndex(pages)
+  return pages
+}
+
+function cleanStoredGroup(group: string): string {
+  return organizeOf({ group }).group
 }
 
 export async function renamePage(id: string, title: string): Promise<PageMeta> {
@@ -380,7 +449,17 @@ export async function renamePage(id: string, title: string): Promise<PageMeta> {
 }
 
 export async function deletePage(id: string): Promise<PageMeta[]> {
-  let pages = (await readIndex()).filter((page) => page.id !== id)
+  const all = await readIndex()
+  const parentId = all.find((page) => page.id === id)?.parentId ?? null
+  let pages = all
+    .filter((page) => page.id !== id)
+    .map((page) => {
+      if (page.parentId !== id) return page
+      const next = { ...page }
+      if (parentId && parentId !== id) next.parentId = parentId
+      else delete next.parentId
+      return next
+    })
   await fs.rm(pageFile(id), { force: true })
   if (pages.length === 0) {
     const blank = await createPageRecord('未命名', '')
@@ -412,8 +491,10 @@ export function resolveAssetPath(rel: string): string {
   return full
 }
 
-export function pageDigest(title: string, body: string): string {
-  return createHash('sha256').update(`${title}\n${body}`).digest('hex')
+export function pageDigest(title: string, body: string, organize?: PageOrganize | null): string {
+  const key = organize ? organizeKey(organize) : ''
+  const payload = key ? `${title}\n${key}\n${body}` : `${title}\n${body}`
+  return createHash('sha256').update(payload).digest('hex')
 }
 
 export async function readSyncState(): Promise<GitHubSyncState | null> {
@@ -435,12 +516,12 @@ export async function readLocalPages(): Promise<Array<{ id: string; title: strin
   for (const page of pages) {
     const body = await fs.readFile(pageFile(page.id), 'utf8').catch(() => '')
     const title = page.title.replace(/\r?\n/g, ' ').trim() || '未命名'
-    out.push({ id: page.id, title, body, digest: pageDigest(title, body) })
+    out.push({ id: page.id, title, body, digest: pageDigest(title, body, organizeOf(page)) })
   }
   return out
 }
 
-export async function writePageFromRemote(input: { id: string; title: string; body: string }): Promise<'created' | 'updated'> {
+export async function writePageFromRemote(input: { id: string; title: string; body: string; organize?: PageOrganize | null }): Promise<'created' | 'updated'> {
   assertId(input.id)
   const title = input.title.replace(/\r?\n/g, ' ').trim().slice(0, 120) || '未命名'
   const pages = await readIndex()
@@ -449,11 +530,14 @@ export async function writePageFromRemote(input: { id: string; title: string; bo
   if (existing) {
     existing.title = title
     existing.updatedAt = Date.now()
+    if (input.organize) applyOrganize(existing, input.organize)
     await writeIndex(pages)
     return 'updated'
   }
   const now = Date.now()
-  pages.unshift({ id: input.id, title, createdAt: now, updatedAt: now })
+  const created: PageMeta = { id: input.id, title, createdAt: now, updatedAt: now }
+  if (input.organize) applyOrganize(created, input.organize)
+  pages.unshift(created)
   await writeIndex(pages)
   return 'created'
 }
@@ -473,23 +557,90 @@ function pageSlug(title: string, id: string, used: Set<string>): string {
   return slug
 }
 
+function pageTitleOf(page: PageMeta): string {
+  return page.title.replace(/\r?\n/g, ' ').trim() || '未命名'
+}
+
+function ancestry(pages: PageMeta[], page: PageMeta): PageMeta[] {
+  const byId = new Map(pages.map((item) => [item.id, item]))
+  const chain: PageMeta[] = []
+  const seen = new Set<string>()
+  let cursor: PageMeta | undefined = page
+  while (cursor?.parentId && !seen.has(cursor.id)) {
+    seen.add(cursor.id)
+    const parent = byId.get(cursor.parentId)
+    if (!parent) break
+    chain.unshift(parent)
+    cursor = parent
+  }
+  return chain
+}
+
+function repoPaths(pages: PageMeta[]): Map<string, string> {
+  const ids = new Set(pages.map((page) => page.id))
+  const usedByParent = new Map<string, Set<string>>()
+  const slugById = new Map<string, string>()
+  for (const page of pages) {
+    const parentKey = page.parentId && ids.has(page.parentId) ? page.parentId : ''
+    const used = usedByParent.get(parentKey) ?? new Set<string>()
+    usedByParent.set(parentKey, used)
+    slugById.set(page.id, pageSlug(pageTitleOf(page), page.id, used))
+  }
+  const paths = new Map<string, string>()
+  for (const page of pages) {
+    const folders = ancestry(pages, page).map((parent) => slugById.get(parent.id) ?? parent.id)
+    paths.set(page.id, ['pages', ...folders, `${slugById.get(page.id) ?? page.id}.md`].join('/'))
+  }
+  return paths
+}
+
+function catalogLines(pages: PageMeta[], paths: Map<string, string>, parentId: string | null, depth: number): string[] {
+  const ids = new Set(pages.map((page) => page.id))
+  const siblings = pages.filter((page) => (page.parentId && ids.has(page.parentId) ? page.parentId : null) === parentId)
+  const bare = siblings.filter((page) => !page.group)
+  const groups = new Map<string, PageMeta[]>()
+  for (const page of siblings) {
+    if (!page.group) continue
+    const list = groups.get(page.group) ?? []
+    list.push(page)
+    groups.set(page.group, list)
+  }
+  const lines: string[] = []
+  const emit = (page: PageMeta, level: number) => {
+    const title = pageTitleOf(page)
+    const tags = (page.tags ?? []).map((tag) => `#${tag}`).join(' ')
+    const href = paths.get(page.id) ?? ''
+    lines.push(`${'  '.repeat(level)}- [${title}](${href})${tags ? ` ${tags}` : ''}`)
+    lines.push(...catalogLines(pages, paths, page.id, level + 1))
+  }
+  for (const page of bare) emit(page, depth)
+  for (const [name, list] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'))) {
+    lines.push(`${'  '.repeat(depth)}- ${name}`)
+    for (const page of list) emit(page, depth + 1)
+  }
+  return lines
+}
+
 export async function listSyncFiles(): Promise<Array<{ path: string; bytes: Buffer; label: string }>> {
   const pages = await readIndex()
   const files: Array<{ path: string; bytes: Buffer; label: string }> = []
-  const used = new Set<string>()
-  const catalog = ['# 目录', '', `共 ${pages.length} 个页面。`, '']
+  const paths = repoPaths(pages)
+  const catalog = ['# 目录', '', `共 ${pages.length} 个页面。`, '', ...catalogLines(pages, paths, null, 0), '']
   for (const page of pages) {
     const body = await fs.readFile(pageFile(page.id), 'utf8').catch(() => '')
-    const title = page.title.replace(/\r?\n/g, ' ').trim() || '未命名'
-    const slug = pageSlug(title, page.id, used)
-    const rel = `pages/${slug}.md`
-    const syncedBody = body
-      .replace(/^\uFEFF/, '')
-      .replace(/^\n+/, '')
-      .replace(/\]\((\.\/)?assets\//g, '](../assets/')
-    const content = `<!-- zention:${page.id} -->\n# ${title}\n\n${syncedBody}`
+    const title = pageTitleOf(page)
+    const rel = paths.get(page.id) ?? `pages/${page.id}.md`
+    const assetRoot = `${'../'.repeat(Math.max(rel.split('/').length - 1, 1))}assets/`
+    const syncedBody = linksForGithub(
+      body
+        .replace(/^\uFEFF/, '')
+        .replace(/^\n+/, '')
+        .replace(/\]\((?:\.\/|(?:\.\.\/)+)?assets\//g, `](${assetRoot}`),
+      rel,
+      paths,
+    )
+    const content = `${markerFor(page.id, page)}\n# ${title}\n\n${syncedBody}`
     files.push({ path: rel, bytes: Buffer.from(content, 'utf8'), label: `页面「${title}」` })
-    catalog.push(`- [${title}](${rel})`)
   }
   files.unshift({ path: '目录.md', bytes: Buffer.from(`${catalog.join('\n')}\n`, 'utf8'), label: '目录' })
   const names = await fs.readdir(assetsDir()).catch(() => [] as string[])

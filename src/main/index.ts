@@ -14,6 +14,7 @@ import { installDownloadedUpdate, setupAutoUpdate } from './update'
 import {
   createPage,
   deletePage,
+  organizePage,
   initPaths,
   initStore,
   listPages,
@@ -27,7 +28,7 @@ import {
   updateSettings,
   viewSettings,
 } from './store'
-import type { ChatInput, Result, SettingsPatch, SyncProgress } from '../shared/types'
+import type { ChatInput, PagePatch, Result, SettingsPatch, SyncProgress } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -136,7 +137,15 @@ function registerIpc(): void {
       return {}
     }),
   )
-  ipcMain.handle('pages:create', (_event, title?: string) => guard(async () => ({ page: await createPage(title) })))
+  ipcMain.handle('pages:create', (_event, title?: string, parentId?: string | null) =>
+    guard(async () => {
+      const page = await createPage(title, parentId)
+      return { page, pages: await listPages() }
+    }),
+  )
+  ipcMain.handle('pages:organize', (_event, id: string, patch: PagePatch) =>
+    guard(async () => ({ pages: await organizePage(id, patch) })),
+  )
   ipcMain.handle('pages:rename', (_event, id: string, title: string) =>
     guard(async () => ({ page: await renamePage(id, title) })),
   )
@@ -202,7 +211,16 @@ function registerIpc(): void {
   ipcMain.handle('github:logout', () => guard(async () => ({ settings: await logoutGitHub() })))
   ipcMain.handle('github:create', (_event, name: string) => guard(() => createAndSync(name, emitSyncProgress)))
   ipcMain.handle('github:link', (_event, fullName: string) => guard(() => linkAndSync(fullName, emitSyncProgress)))
-  ipcMain.handle('github:sync', () => guard(() => syncWorkspace(emitSyncProgress)))
+  ipcMain.handle('github:sync', () =>
+    guard(async () => {
+      try {
+        return await syncWorkspace(emitSyncProgress)
+      } catch (error) {
+        console.error('[github-sync]', error instanceof Error ? error.message : error)
+        throw error
+      }
+    }),
+  )
   ipcMain.handle('export:markdown', (_event, input: { title: string; markdown: string }) =>
     guard(async () => {
       const saved = await exportMarkdown(mainWindow, input.title, input.markdown)

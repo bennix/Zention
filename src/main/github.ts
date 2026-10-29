@@ -17,6 +17,7 @@ import {
   setGitHubSession,
   viewSettings,
 } from './store'
+import { linksFromGithub, organizeOf, type PageOrganize } from '../shared/pages'
 import { mergeText } from './merge'
 import { zenmuxFetch } from './ai'
 import { translate, type MessageKey } from '../shared/i18n'
@@ -45,36 +46,39 @@ interface GhResponse {
 }
 
 async function gh(token: string, pathname: string, init: RequestInit = {}): Promise<any> {
-  const response = await zenmuxFetch(
-    `https://api.github.com${pathname}`,
-    {
-      ...init,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token}`,
-        'User-Agent': 'Zention',
-        'X-GitHub-Api-Version': '2022-11-28',
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init.headers,
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await zenmuxFetch(
+      `https://api.github.com${pathname}`,
+      {
+        ...init,
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'Zention',
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+          ...init.headers,
+        },
       },
-    },
-    undefined,
-    undefined,
-    { transport: 'node', timeoutMs: 60_000 },
-  )
-  const text = await response.text()
-  let data: any = null
-  if (text) {
-    try {
-      data = JSON.parse(text)
-    } catch {
-      data = { message: text.slice(0, 300) }
+      undefined,
+      undefined,
+      { transport: 'node', timeoutMs: 60_000, family: 4 },
+    )
+    const text = await response.text()
+    let data: any = null
+    if (text) {
+      try {
+        data = JSON.parse(text)
+      } catch {
+        data = { message: text.slice(0, 300) }
+      }
     }
+    if (response.ok) return (data ?? {}) as GhResponse['data']
+    const retry = [408, 429, 500, 502, 503, 504].includes(response.status) && attempt < 2
+    if (!retry) throw new Error(translate(currentLocale(), 'ghHttp', { status: response.status, detail: data?.message || '' }))
+    await sleep(1000 * 2 ** attempt)
   }
-  if (!response.ok) {
-    throw new Error(translate(currentLocale(), 'ghHttp', { status: response.status, detail: data?.message || '' }))
-  }
-  return (data ?? {}) as GhResponse['data']
+  throw new Error(translate(currentLocale(), 'netFailBare'))
 }
 
 function userFrom(data: any): GitHubUser {
@@ -169,18 +173,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function parseRemotePage(raw: string): { id: string | null; title: string; body: string } {
+function parseRemotePage(raw: string): { id: string | null; title: string; body: string; organize: PageOrganize | null } {
   let text = raw.replace(/^\uFEFF/, '')
   let id: string | null = null
-  const marker = text.match(/^<!--\s*zention:([0-9a-f-]{36})\s*-->\s*/i)
+  let organize: PageOrganize | null = null
+  const marker = text.match(/^<!--\s*zention:([0-9a-f-]{36})(?:\s+(\{.*?\}))?\s*-->\s*/i)
   if (marker) {
     id = marker[1]!.toLowerCase()
+    if (marker[2]) {
+      try {
+        organize = organizeOf(JSON.parse(marker[2]) as PageOrganize)
+      } catch {
+        organize = null
+      }
+    }
     text = text.slice(marker[0].length)
   }
   const heading = text.match(/^#\s+(.+)\r?\n+/)
   const title = heading?.[1]?.trim() || '未命名'
-  const body = (heading ? text.slice(heading[0].length) : text).replace(/\]\(\.\.\/assets\//g, '](assets/')
-  return { id, title, body }
+  const body = (heading ? text.slice(heading[0].length) : text).replace(/\]\((?:\.\/|(?:\.\.\/)+)?assets\//g, '](assets/')
+  return { id, title, body, organize }
 }
 
 async function blobBytes(token: string, owner: string, repo: string, sha: string): Promise<Buffer> {
@@ -244,6 +256,7 @@ async function pullRemote(
   const local = await readLocalPages()
   const localById = new Map(local.map((page) => [page.id, page]))
   const seen = new Set<string>()
+  const pendingPages: Array<{ rel: string; raw: string }> = []
   let pulled = 0
   let conflicts = folded
   let done = 0
@@ -260,32 +273,43 @@ async function pullRemote(
       continue
     }
     if (!rel.endsWith('.md')) continue
-    const parsed = parseRemotePage(bytes.toString('utf8'))
+    pendingPages.push({ rel, raw: bytes.toString('utf8') })
+  }
+  const parsedPages = pendingPages.map((item) => ({ rel: item.rel, ...parseRemotePage(item.raw) }))
+  const idByPath = new Map<string, string>()
+  for (const parsed of parsedPages) if (parsed.id) idByPath.set(parsed.rel, parsed.id)
+  for (const parsed of parsedPages) {
+    parsed.body = linksFromGithub(parsed.body, parsed.rel, idByPath)
+    const rel = parsed.rel
     let id = parsed.id && localById.has(parsed.id) ? parsed.id : null
     if (!id) {
       const sameTitle = local.filter((page) => page.title === parsed.title && !seen.has(page.id))
       if (sameTitle.length === 1) id = sameTitle[0]!.id
     }
-    const digest = pageDigest(parsed.title, parsed.body)
+    const digest = pageDigest(parsed.title, parsed.body, parsed.organize)
     if (!id || !localById.has(id)) {
       const base = canonicalTitle(parsed.title)
       const twin = local.find((page) => canonicalTitle(page.title) === base)
       if (twin) {
-        if (twin.body !== parsed.body) {
-          const merged = mergeText(twin.body, parsed.body)
-          if (merged !== twin.body) {
-            await writePageFromRemote({ id: twin.id, title: canonicalTitle(twin.title), body: merged })
-            twin.body = merged
-            twin.title = canonicalTitle(twin.title)
-          }
-          conflicts += 1
+        const differed = twin.body !== parsed.body
+        if (differed || parsed.organize) {
+          const merged = differed ? mergeText(twin.body, parsed.body) : twin.body
+          await writePageFromRemote({
+            id: twin.id,
+            title: canonicalTitle(twin.title),
+            body: merged,
+            ...(parsed.organize ? { organize: parsed.organize } : {}),
+          })
+          twin.body = merged
+          twin.title = canonicalTitle(twin.title)
+          if (differed) conflicts += 1
         }
         seen.add(twin.id)
         continue
       }
       const nextId = parsed.id && PAGE_ID.test(parsed.id) && !localById.has(parsed.id) ? parsed.id : randomUUID()
-      await writePageFromRemote({ id: nextId, title: base, body: parsed.body })
-      local.push({ id: nextId, title: base, body: parsed.body, digest: pageDigest(base, parsed.body) })
+      await writePageFromRemote({ id: nextId, title: base, body: parsed.body, organize: parsed.organize })
+      local.push({ id: nextId, title: base, body: parsed.body, digest: pageDigest(base, parsed.body, parsed.organize) })
       localById.set(nextId, local[local.length - 1]!)
       seen.add(nextId)
       pulled += 1
@@ -299,12 +323,22 @@ async function pullRemote(
     if (current.digest === digest) continue
     if (remoteChanged && localChanged) {
       const merged = mergeText(current.body, parsed.body)
-      if (merged !== current.body) await writePageFromRemote({ id, title: current.title, body: merged })
+      if (merged !== current.body) {
+        await writePageFromRemote({
+          id,
+          title: current.title,
+          body: merged,
+          ...(parsed.organize ? { organize: parsed.organize } : {}),
+        })
+      }
       conflicts += 1
       continue
     }
     if (remoteChanged && !localChanged) {
-      await writePageFromRemote({ id, title: parsed.title, body: parsed.body })
+      await writePageFromRemote({ id, title: parsed.title, body: parsed.body, organize: parsed.organize })
+      current.title = parsed.title
+      current.body = parsed.body
+      current.digest = digest
       pulled += 1
     }
   }

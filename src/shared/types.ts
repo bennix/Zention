@@ -30,6 +30,17 @@ export interface PageMeta {
   title: string
   createdAt: number
   updatedAt: number
+  parentId?: string | null
+  folder?: boolean
+  group?: string
+  tags?: string[]
+}
+
+export interface PagePatch {
+  parentId?: string | null
+  folder?: boolean
+  group?: string
+  tags?: string[]
 }
 
 export interface PageData extends PageMeta {
@@ -102,7 +113,8 @@ export interface ZentionApi {
   listPages(): Promise<Result<{ pages: PageMeta[] }>>
   readPage(id: string): Promise<Result<{ page: PageData }>>
   savePage(id: string, body: string): Promise<Result<Record<string, never>>>
-  createPage(title?: string): Promise<Result<{ page: PageData }>>
+  createPage(title?: string, parentId?: string | null): Promise<Result<{ page: PageData; pages: PageMeta[] }>>
+  organizePage(id: string, patch: PagePatch): Promise<Result<{ pages: PageMeta[] }>>
   renamePage(id: string, title: string): Promise<Result<{ page: PageMeta }>>
   deletePage(id: string): Promise<Result<{ pages: PageMeta[] }>>
   pickImage(): Promise<Result<{ path: string | null }>>

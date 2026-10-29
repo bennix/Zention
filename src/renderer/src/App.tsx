@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PageData, PageMeta, SettingsPatch, SettingsView, SyncProgress, UpdateStatus } from '../../shared/types'
+import type { PageData, PageMeta, PagePatch, SettingsPatch, SettingsView, SyncProgress, UpdateStatus } from '../../shared/types'
 import { call } from './call'
 import { EditorPane, type EditorExport } from './components/EditorPane'
+import { NoteNav } from './components/NoteNav'
 import { GithubDialog, SyncProgressView } from './components/GithubDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { setExternalImages } from './editor/image'
@@ -182,13 +183,48 @@ export default function App() {
     })
   }, [])
 
-  const create = async () => {
+  const create = async (parentId?: string | null) => {
     if (!leaveExternal()) return
-    const { page: next } = await call(window.zention.createPage(t('untitled')))
-    setPages((current) => [next, ...current.filter((item) => item.id !== next.id)])
-    setPage(next)
-    setTitle(next.title)
-    localStorage.setItem('zention.page', next.id)
+    try {
+      const { page: next, pages: listed } = await call(window.zention.createPage(t('untitled'), parentId))
+      setPages(listed)
+      setPage(next)
+      setTitle(next.title)
+      localStorage.setItem('zention.page', next.id)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const organize = async (id: string, patch: PagePatch) => {
+    const result = await window.zention.organizePage(id, patch)
+    if (!result.ok) {
+      notify(result.error)
+      return
+    }
+    setPages(result.pages)
+    setPage((current) => {
+      if (!current) return current
+      const meta = result.pages.find((item) => item.id === current.id)
+      return meta ? { ...current, ...meta, body: current.body, updatedAt: current.updatedAt } : current
+    })
+  }
+
+  const openLinked = (id: string) => {
+    void (async () => {
+      if (!leaveExternal()) return
+      if (page?.id === id) return
+      await flushNotes()
+      if (!pages.some((item) => item.id === id)) {
+        const result = await window.zention.readPage(id)
+        if (!result.ok) {
+          notify(t('pageMissingLink'))
+          return
+        }
+        setPages((current) => (current.some((item) => item.id === id) ? current : [result.page, ...current]))
+      }
+      await openPage(id)
+    })()
   }
 
   const saveBody = useCallback(
@@ -448,19 +484,17 @@ export default function App() {
           <div className="side-label">{t('notes')}</div>
           {external ? (
             <div className="page-row active">
-              <button type="button">{external.name}</button>
+              <button type="button" className="page-name">{external.name}</button>
             </div>
           ) : null}
-          {pages.map((item) => (
-            <div key={item.id} className={!external && item.id === page?.id ? 'page-row active' : 'page-row'}>
-              <button type="button" onClick={() => void openWorkspace(item.id)}>
-                {item.title || t('untitled')}
-              </button>
-              <button type="button" className="icon" onClick={() => void remove(item.id)} aria-label={t('delete')}>
-                ×
-              </button>
-            </div>
-          ))}
+          <NoteNav
+            pages={pages}
+            activeId={external ? '' : page?.id ?? ''}
+            onOpen={(id) => void openWorkspace(id)}
+            onCreate={(parentId) => void create(parentId)}
+            onOrganize={(id, patch) => void organize(id, patch)}
+            onDelete={(id) => void remove(id)}
+          />
         </nav>
         <div className="side-foot">
           <button type="button" onClick={() => setGithubOpen(true)}>
@@ -552,11 +586,22 @@ export default function App() {
                   {syncing ? t('syncing', { percent: syncProgress?.percent ?? 0 }) : t('sync')}
                 </button>
               </div>
+              {!external && page && (page.folder || page.group || (page.tags ?? []).length > 0) ? (
+                <div className="page-meta">
+                  {page.folder ? <span className="pill">{t('folder')}</span> : null}
+                  {page.group ? <span className="pill">{page.group}</span> : null}
+                  {(page.tags ?? []).map((item) => (
+                    <span key={item} className="pill">#{item}</span>
+                  ))}
+                </div>
+              ) : null}
               {syncProgress ? <SyncProgressView progress={syncProgress} /> : null}
               {external ? (
                 <EditorPane
                   key={`file:${external.path}:${external.revision}`}
                   pageId=""
+                  pages={pages}
+                  onOpenPage={openLinked}
                   external
                   markdown={external.initial}
                   onChange={markExternalDirty}
@@ -568,6 +613,8 @@ export default function App() {
                 <EditorPane
                   key={`${page.id}:${page.updatedAt}`}
                   pageId={page.id}
+                  pages={pages}
+                  onOpenPage={openLinked}
                   markdown={page.body}
                   onChange={saveBody}
                   onToast={notify}
@@ -582,7 +629,15 @@ export default function App() {
         )}
       </main>
       {settingsOpen && (
-        <SettingsDialog settings={settings} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onLocale={(value) => void changeLocale(value)} />
+        <SettingsDialog
+          settings={settings}
+          onClose={() => setSettingsOpen(false)}
+          onSave={saveSettings}
+          onLocale={(value) => void changeLocale(value)}
+          onOpenGithub={() => setGithubOpen(true)}
+          onGithubChange={setSettings}
+          onToast={notify}
+        />
       )}
       {githubOpen && (
         <GithubDialog
