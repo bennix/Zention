@@ -7,7 +7,9 @@ import { normalizeLocale, translate, type MessageKey } from '../shared/i18n'
 import { currentLocale, setCurrentLocale } from './locale'
 export { currentLocale }
 import { normalizeProxyUrl } from './proxy'
-import { linksForGithub, markerFor, organizeKey, organizeOf, type PageOrganize } from '../shared/pages'
+import { defaultDatabaseSchema, defaultDatabaseViews } from '../shared/database'
+import { linksForGithub, markerFor, mergeOrganize, organizeKey, organizeOf, type PageOrganize } from '../shared/pages'
+import { syncedDatabaseTable } from '../shared/database'
 import {
   DEFAULT_CHAT_MODELS,
   DEFAULT_IMAGE_MODELS,
@@ -20,6 +22,7 @@ import {
   type PagePatch,
   type SettingsPatch,
   type SettingsView,
+  type AssetScanProgress,
 } from '../shared/types'
 
 interface DiskSettings {
@@ -371,11 +374,34 @@ export async function createPage(title = '未命名', parentId?: string | null):
     if (parent) {
       parent.folder = true
       meta.parentId = parent.id
+      if (parent.kind === 'database') {
+        meta.props = { status: '待办' }
+      }
     }
   }
   pages.unshift(meta)
   await writeIndex(pages)
   return { ...meta, body: '' }
+}
+
+export async function createDatabase(title = '未命名数据库'): Promise<PageData> {
+  const meta = await createPageRecord(title, '')
+  meta.kind = 'database'
+  meta.folder = true
+  meta.schema = defaultDatabaseSchema()
+  meta.views = defaultDatabaseViews()
+  meta.activeViewId = 'table'
+  const pages = await readIndex()
+  pages.unshift(meta)
+  await writeIndex(pages)
+  return { ...meta, body: '' }
+}
+
+export async function createDatabaseRow(databaseId: string, title = '未命名'): Promise<PageData> {
+  const pages = await readIndex()
+  const database = pages.find((page) => page.id === databaseId)
+  if (!database || database.kind !== 'database') throw new Error(translate(currentLocale(), 'pageMissing'))
+  return createPage(title, databaseId)
 }
 
 function childIds(pages: PageMeta[], id: string): Set<string> {
@@ -399,6 +425,16 @@ function applyOrganize(meta: PageMeta, org: PageOrganize): void {
   else delete meta.group
   if (org.tags.length) meta.tags = org.tags
   else delete meta.tags
+  if (org.kind === 'database') meta.kind = 'database'
+  else delete meta.kind
+  if (org.schema?.length) meta.schema = org.schema
+  else delete meta.schema
+  if (org.views?.length) meta.views = org.views
+  else delete meta.views
+  if (org.activeViewId) meta.activeViewId = org.activeViewId
+  else delete meta.activeViewId
+  if (org.props && Object.keys(org.props).length) meta.props = org.props
+  else delete meta.props
 }
 
 export async function organizePage(id: string, patch: PagePatch): Promise<PageMeta[]> {
@@ -409,6 +445,12 @@ export async function organizePage(id: string, patch: PagePatch): Promise<PageMe
   if (patch.folder !== undefined) next.folder = patch.folder
   if (patch.group !== undefined) next.group = cleanStoredGroup(patch.group)
   if (patch.tags !== undefined) next.tags = organizeOf({ tags: patch.tags }).tags
+  if (patch.kind !== undefined) next.kind = patch.kind === 'database' ? 'database' : undefined
+  if (patch.schema !== undefined) next.schema = patch.schema
+  if (patch.views !== undefined) next.views = patch.views
+  if (patch.activeViewId !== undefined) next.activeViewId = patch.activeViewId || undefined
+  if (patch.props !== undefined) next.props = patch.props
+  if (next.kind === 'database') next.folder = true
   if (patch.parentId !== undefined) {
     if (!patch.parentId) next.parentId = null
     else {
@@ -483,6 +525,108 @@ export async function saveAsset(bytes: Buffer, ext: string): Promise<string> {
   return `assets/${name}`
 }
 
+/** Collect `assets/…` filenames referenced by markdown/html in workspace notes. */
+function collectAssetNames(body: string, used: Set<string>): void {
+  const pattern = /(?:\(|["'=])(?:\.\/|(?:\.\.\/)*)?assets\/([^)"'\s?#]+)/gi
+  for (const match of body.matchAll(pattern)) {
+    let name = match[1] ?? ''
+    try {
+      name = decodeURIComponent(name)
+    } catch {
+      /* keep raw */
+    }
+    name = path.basename(name.replace(/\\/g, '/'))
+    if (name && !name.startsWith('.')) used.add(name)
+  }
+}
+
+async function runPool<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  if (!items.length) return
+  let index = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const current = items[index]
+      index += 1
+      await task(current)
+    }
+  })
+  await Promise.all(workers)
+}
+
+export async function listUnusedAssets(
+  onProgress?: (progress: AssetScanProgress) => void,
+): Promise<{ unused: string[]; total: number; used: number }> {
+  const pages = await readIndex()
+  const used = new Set<string>()
+  let lastSent = 0
+  let phase: AssetScanProgress['phase'] = 'pages'
+  let phaseStarted = Date.now()
+  const report = (next: AssetScanProgress['phase'], done: number, total: number, force = false) => {
+    if (!onProgress) return
+    const now = Date.now()
+    if (next !== phase) {
+      phase = next
+      phaseStarted = now
+      lastSent = 0
+    }
+    if (!force && done !== total && now - lastSent < 80) return
+    lastSent = now
+    const seconds = Math.max((now - phaseStarted) / 1000, 0.05)
+    onProgress({ phase: next, done, total, perSecond: Math.round(done / seconds) })
+  }
+  let done = 0
+  report('pages', 0, pages.length, true)
+  await runPool(pages, 32, async (page) => {
+    const body = await fs.readFile(pageFile(page.id), 'utf8').catch(() => '')
+    collectAssetNames(body, used)
+    done += 1
+    report('pages', done, pages.length)
+  })
+  report('pages', pages.length, pages.length, true)
+  const entries = await fs.readdir(assetsDir(), { withFileTypes: true }).catch(() => [])
+  const images = entries.filter((entry) => {
+    if (!entry.isFile() || entry.name.startsWith('.')) return false
+    return IMAGE_EXT.has(path.extname(entry.name).slice(1).toLowerCase())
+  })
+  const unused: string[] = []
+  report('assets', 0, images.length, true)
+  images.forEach((entry, index) => {
+    if (!used.has(entry.name)) unused.push(entry.name)
+    report('assets', index + 1, images.length)
+  })
+  report('assets', images.length, images.length, true)
+  unused.sort((a, b) => a.localeCompare(b))
+  return { unused, total: images.length, used: images.length - unused.length }
+}
+
+export async function cleanUnusedAssets(
+  trash: (absolutePath: string) => Promise<void>,
+  onProgress?: (progress: AssetScanProgress) => void,
+): Promise<{ deleted: string[]; kept: number }> {
+  const { unused, used } = await listUnusedAssets(onProgress)
+  const deleted: string[] = []
+  const started = Date.now()
+  let lastSent = 0
+  const report = (done: number, force = false) => {
+    if (!onProgress) return
+    const now = Date.now()
+    if (!force && done !== unused.length && now - lastSent < 80) return
+    lastSent = now
+    const seconds = Math.max((now - started) / 1000, 0.05)
+    onProgress({ phase: 'trash', done, total: unused.length, perSecond: Math.round(done / seconds) })
+  }
+  report(0, true)
+  for (const name of unused) {
+    const base = path.basename(name)
+    if (base !== name || base.startsWith('.')) continue
+    await trash(path.join(assetsDir(), base))
+    deleted.push(base)
+    report(deleted.length)
+  }
+  report(unused.length, true)
+  return { deleted, kept: used }
+}
+
 export function resolveAssetPath(rel: string): string {
   const normalized = path.normalize(rel).replace(/^(\.\.(\/|\\|$))+/, '')
   const full = path.resolve(workspaceDir, normalized)
@@ -510,13 +654,14 @@ export async function writeSyncState(state: GitHubSyncState): Promise<void> {
   await writeDisk(disk)
 }
 
-export async function readLocalPages(): Promise<Array<{ id: string; title: string; body: string; digest: string }>> {
+export async function readLocalPages(): Promise<Array<{ id: string; title: string; body: string; digest: string; organize: PageOrganize }>> {
   const pages = await readIndex()
   const out = []
   for (const page of pages) {
     const body = await fs.readFile(pageFile(page.id), 'utf8').catch(() => '')
     const title = page.title.replace(/\r?\n/g, ' ').trim() || '未命名'
-    out.push({ id: page.id, title, body, digest: pageDigest(title, body, organizeOf(page)) })
+    const organize = organizeOf(page)
+    out.push({ id: page.id, title, body, digest: pageDigest(title, body, organize), organize })
   }
   return out
 }
@@ -653,7 +798,7 @@ function catalogLines(pages: PageMeta[], paths: Map<string, string>, parentId: s
     const title = pageTitleOf(page)
     const tags = (page.tags ?? []).map((tag) => `#${tag}`).join(' ')
     const href = paths.get(page.id) ?? ''
-    lines.push(`${'  '.repeat(level)}- [${title}](${href})${tags ? ` ${tags}` : ''}`)
+    lines.push(`${'  '.repeat(level)}- [${title}](${href})${page.kind === 'database' ? ' · 数据库' : ''}${tags ? ` ${tags}` : ''}`)
     lines.push(...catalogLines(pages, paths, page.id, level + 1))
   }
   for (const page of bare) emit(page, depth)
@@ -682,7 +827,16 @@ export async function listSyncFiles(): Promise<Array<{ path: string; bytes: Buff
       rel,
       paths,
     )
-    const content = `${markerFor(page.id, page)}\n# ${title}\n\n${syncedBody}`
+    const grid =
+      page.kind === 'database'
+        ? syncedDatabaseTable(
+            page.schema ?? [],
+            pages
+              .filter((row) => row.parentId === page.id)
+              .map((row) => ({ id: row.id, title: pageTitleOf(row), props: row.props })),
+          )
+        : ''
+    const content = `${markerFor(page.id, page)}\n# ${title}\n\n${grid}${syncedBody}`
     files.push({ path: rel, bytes: Buffer.from(content, 'utf8'), label: `页面「${title}」` })
   }
   files.unshift({ path: '目录.md', bytes: Buffer.from(`${catalog.join('\n')}\n`, 'utf8'), label: '目录' })

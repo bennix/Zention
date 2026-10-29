@@ -18,7 +18,8 @@ import {
   setGitHubSession,
   viewSettings,
 } from './store'
-import { linksFromGithub, organizeOf, type PageOrganize } from '../shared/pages'
+import { linksFromGithub, mergeOrganize, organizeKey, organizeOf, parsePageMarker, type PageOrganize } from '../shared/pages'
+import { stripSyncedDatabaseTable } from '../shared/database'
 import { mergeText } from './merge'
 import { zenmuxFetch } from './ai'
 import { translate, type MessageKey } from '../shared/i18n'
@@ -175,25 +176,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 function parseRemotePage(raw: string): { id: string | null; title: string; body: string; organize: PageOrganize | null } {
-  let text = raw.replace(/^\uFEFF/, '')
-  let id: string | null = null
-  let organize: PageOrganize | null = null
-  const marker = text.match(/^<!--\s*zention:([0-9a-f-]{36})(?:\s+(\{.*?\}))?\s*-->\s*/i)
-  if (marker) {
-    id = marker[1]!.toLowerCase()
-    if (marker[2]) {
-      try {
-        organize = organizeOf(JSON.parse(marker[2]) as PageOrganize)
-      } catch {
-        organize = null
-      }
-    }
-    text = text.slice(marker[0].length)
-  }
+  const parsed = parsePageMarker(raw)
+  const text = parsed.rest
   const heading = text.match(/^#\s+(.+)\r?\n+/)
   const title = heading?.[1]?.trim() || '未命名'
-  const body = (heading ? text.slice(heading[0].length) : text).replace(/\]\((?:\.\/|(?:\.\.\/)+)?assets\//g, '](assets/')
-  return { id, title, body, organize }
+  const body = stripSyncedDatabaseTable(heading ? text.slice(heading[0].length) : text).replace(
+    /\]\((?:\.\/|(?:\.\.\/)+)?assets\//g,
+    '](assets/',
+  )
+  return { id: parsed.id, title, body, organize: parsed.organize }
 }
 
 async function blobBytes(token: string, owner: string, repo: string, sha: string): Promise<Buffer> {
@@ -310,7 +301,7 @@ async function pullRemote(
       }
       const nextId = parsed.id && PAGE_ID.test(parsed.id) && !localById.has(parsed.id) ? parsed.id : randomUUID()
       await writePageFromRemote({ id: nextId, title: base, body: parsed.body, organize: parsed.organize })
-      local.push({ id: nextId, title: base, body: parsed.body, digest: pageDigest(base, parsed.body, parsed.organize) })
+      local.push({ id: nextId, title: base, body: parsed.body, digest: pageDigest(base, parsed.body, parsed.organize), organize: parsed.organize ?? organizeOf(null) })
       localById.set(nextId, local[local.length - 1]!)
       seen.add(nextId)
       pulled += 1
@@ -324,12 +315,13 @@ async function pullRemote(
     if (current.digest === digest) continue
     if (remoteChanged && localChanged) {
       const merged = mergeText(current.body, parsed.body)
-      if (merged !== current.body) {
+      const organize = parsed.organize ? mergeOrganize(current.organize, parsed.organize) : current.organize
+      if (merged !== current.body || organizeKey(current.organize) !== organizeKey(organize)) {
         await writePageFromRemote({
           id,
           title: current.title,
           body: merged,
-          ...(parsed.organize ? { organize: parsed.organize } : {}),
+          organize,
         })
       }
       conflicts += 1

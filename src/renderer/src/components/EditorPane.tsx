@@ -16,6 +16,7 @@ import { MentionField } from './MentionField'
 import { SelectionMenu, SlashMenu, type SlashMenuHandle } from './Menus'
 import { useI18n } from '../i18n'
 import { decorateExportHtml } from '../exportHtml'
+import { TableToolbar } from '../editor/TableToolbar'
 
 export type EditorExport = {
   markdown: () => string
@@ -647,6 +648,7 @@ export function EditorPane({
 
   return (
     <div className="editor-wrap">
+      <TableToolbar editor={editor} />
       <EditorContent editor={editor} />
       <SlashMenu ref={slashMenuRef} state={slash} onDismiss={() => setSlash(null)} />
       <SlashMenu ref={pageLinkMenuRef} state={pageLink} onDismiss={() => setPageLink(null)} />

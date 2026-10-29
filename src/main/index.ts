@@ -13,8 +13,12 @@ import { decodeExternalToken, importMarkdownPage, readExternalMarkdown, resolveE
 import { rebuildAppMenu, setMenuUpdateHandlers } from './menu'
 import { applyUpdaterProxy, checkForAppUpdate, installDownloadedUpdate, setupAutoUpdate } from './update'
 import {
+  cleanUnusedAssets,
+  createDatabase,
+  createDatabaseRow,
   createPage,
   deletePage,
+  listUnusedAssets,
   organizePage,
   initPaths,
   initStore,
@@ -155,6 +159,35 @@ function registerIpc(): void {
       const page = await createPage(title, parentId)
       return { page, pages: await listPages() }
     }),
+  )
+  ipcMain.handle('pages:create-database', (_event, title?: string) =>
+    guard(async () => {
+      const page = await createDatabase(title)
+      return { page, pages: await listPages() }
+    }),
+  )
+  ipcMain.handle('pages:create-database-row', (_event, databaseId: string, title?: string) =>
+    guard(async () => {
+      const page = await createDatabaseRow(databaseId, title)
+      return { page, pages: await listPages() }
+    }),
+  )
+  ipcMain.handle('assets:unused', (event) =>
+    guard(async () =>
+      listUnusedAssets((progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send('assets:progress', progress)
+      }),
+    ),
+  )
+  ipcMain.handle('assets:clean-unused', (event) =>
+    guard(async () =>
+      cleanUnusedAssets(
+        (abs) => shell.trashItem(abs),
+        (progress) => {
+          if (!event.sender.isDestroyed()) event.sender.send('assets:progress', progress)
+        },
+      ),
+    ),
   )
   ipcMain.handle('pages:organize', (_event, id: string, patch: PagePatch) =>
     guard(async () => ({ pages: await organizePage(id, patch) })),

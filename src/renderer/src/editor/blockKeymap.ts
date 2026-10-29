@@ -6,6 +6,7 @@ declare module '@tiptap/core' {
     blockKeymap: {
       duplicateBlock: () => ReturnType
       deleteBlock: () => ReturnType
+      deleteSelectedTable: () => ReturnType
       moveBlockUp: () => ReturnType
       moveBlockDown: () => ReturnType
     }
@@ -84,6 +85,13 @@ export const BlockKeymap = Extension.create({
           }
           return true
         },
+      deleteSelectedTable:
+        () =>
+        ({ state, commands }) => {
+          const sel = state.selection
+          if (!(sel instanceof NodeSelection) || sel.node.type.name !== 'table') return false
+          return commands.deleteBlock()
+        },
       moveBlockUp: () => moveBlock(-1),
       moveBlockDown: () => moveBlock(1),
     }
@@ -93,6 +101,8 @@ export const BlockKeymap = Extension.create({
     return {
       'Mod-Shift-ArrowUp': () => this.editor.commands.moveBlockUp(),
       'Mod-Shift-ArrowDown': () => this.editor.commands.moveBlockDown(),
+      Backspace: () => this.editor.commands.deleteSelectedTable(),
+      Delete: () => this.editor.commands.deleteSelectedTable(),
     }
   },
 })

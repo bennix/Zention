@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { SettingsPatch, SyncProgress, UpdateStatus, ZentionApi } from '../shared/types'
+import type { AssetScanProgress, SettingsPatch, SyncProgress, UpdateStatus, ZentionApi } from '../shared/types'
 
 const api: ZentionApi = {
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -10,6 +10,15 @@ const api: ZentionApi = {
   readPage: (id) => ipcRenderer.invoke('pages:read', id),
   savePage: (id, body) => ipcRenderer.invoke('pages:save', id, body),
   createPage: (title, parentId) => ipcRenderer.invoke('pages:create', title, parentId),
+  createDatabase: (title) => ipcRenderer.invoke('pages:create-database', title),
+  createDatabaseRow: (databaseId, title) => ipcRenderer.invoke('pages:create-database-row', databaseId, title),
+  listUnusedAssets: () => ipcRenderer.invoke('assets:unused'),
+  onAssetProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: AssetScanProgress) => callback(progress)
+    ipcRenderer.on('assets:progress', listener)
+    return () => ipcRenderer.removeListener('assets:progress', listener)
+  },
+  cleanUnusedAssets: () => ipcRenderer.invoke('assets:clean-unused'),
   organizePage: (id, patch) => ipcRenderer.invoke('pages:organize', id, patch),
   renamePage: (id, title) => ipcRenderer.invoke('pages:rename', id, title),
   deletePage: (id) => ipcRenderer.invoke('pages:delete', id),

@@ -40,7 +40,15 @@ export function buildExtensions(options: {
       defaultLanguage: 'plaintext',
     }),
     Markdown.configure({ indentation: { style: 'space', size: 4 } }),
-    TableKit.configure({ table: { resizable: false, renderWrapper: true } }),
+    TableKit.configure({
+      table: {
+        resizable: true,
+        renderWrapper: true,
+        lastColumnResizable: true,
+        allowTableNodeSelection: true,
+        cellMinWidth: 48,
+      },
+    }),
     TaskList,
     TaskItem.configure({ nested: true }),
     createLocalImage(options.external === true),

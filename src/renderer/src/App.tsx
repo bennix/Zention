@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { DbAiResult, DbAiRowDraft } from '../../shared/databaseAi'
 import type { PageData, PageMeta, PagePatch, SettingsPatch, SettingsView, SyncDirection, SyncProgress, UpdateStatus } from '../../shared/types'
 import { call } from './call'
 import { EditorPane, type EditorExport } from './components/EditorPane'
+import { DatabaseAiDialog } from './components/database/DatabaseAiDialog'
+import { DatabasePane } from './components/database/DatabasePane'
 import { NoteNav } from './components/NoteNav'
 import { GithubDialog, SyncProgressView } from './components/GithubDialog'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -39,6 +42,7 @@ export default function App() {
   const [external, setExternal] = useState<ExternalDoc | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
+  const [dbAiOpen, setDbAiOpen] = useState(false)
   const externalRef = useRef<ExternalDoc | null>(null)
   externalRef.current = external
   const saveExternalRef = useRef<() => void>(() => {})
@@ -194,7 +198,11 @@ export default function App() {
   const create = async (parentId?: string | null) => {
     if (!leaveExternal()) return
     try {
-      const { page: next, pages: listed } = await call(window.zention.createPage(t('untitled'), parentId))
+      const parent = parentId ? pages.find((item) => item.id === parentId) : null
+      const { page: next, pages: listed } =
+        parent?.kind === 'database'
+          ? await call(window.zention.createDatabaseRow(parent.id, t('untitled')))
+          : await call(window.zention.createPage(t('untitled'), parentId))
       setPages(listed)
       setPage(next)
       setTitle(next.title)
@@ -202,6 +210,89 @@ export default function App() {
     } catch (error) {
       notify(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  const createDatabase = async () => {
+    if (!leaveExternal()) return
+    try {
+      const { page: next, pages: listed } = await call(window.zention.createDatabase(t('dbUntitled')))
+      setPages(listed)
+      setPage(next)
+      setTitle(next.title)
+      localStorage.setItem('zention.page', next.id)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const showDatabase = (listed: PageMeta[], id: string, body: string, titleText: string) => {
+    const meta = listed.find((item) => item.id === id)
+    setPages(listed)
+    setPage((current) => {
+      const base = current?.id === id ? current : null
+      return { ...(base ?? { id, title: titleText, createdAt: meta?.createdAt ?? Date.now(), updatedAt: meta?.updatedAt ?? Date.now(), body }), ...(meta ?? {}), body }
+    })
+    setTitle(meta?.title || titleText)
+    localStorage.setItem('zention.page', id)
+  }
+
+  const writeRows = async (databaseId: string, rows: DbAiRowDraft[], listed: PageMeta[]) => {
+    let next = listed
+    for (const row of rows) {
+      const created = await call(window.zention.createDatabaseRow(databaseId, row.title || t('untitled')))
+      next = created.pages
+      const props = { ...(created.page.props ?? {}), ...row.props }
+      if (Object.keys(props).length) {
+        const patched = await call(window.zention.organizePage(created.page.id, { props }))
+        next = patched.pages
+      }
+    }
+    return next
+  }
+
+  const applyAiDatabase = async (result: DbAiResult) => {
+    if (result.mode !== 'create') return
+    try {
+      const { page: next, pages: listed } = await call(window.zention.createDatabase(result.title || t('dbUntitled')))
+      const tableId = result.views.find((view) => view.type === 'table')?.id ?? result.views[0]?.id
+      const organized = await call(
+        window.zention.organizePage(next.id, {
+          schema: result.schema,
+          views: result.views,
+          activeViewId: tableId,
+        }),
+      )
+      const withRows = await writeRows(next.id, result.rows, organized.pages)
+      showDatabase(withRows, next.id, next.body, result.title)
+    } catch (error) {
+      const listed = await window.zention.listPages()
+      if (listed.ok) setPages(listed.pages)
+      throw error
+    }
+  }
+
+  const createDatabaseRows = async (databaseId: string, rows: DbAiRowDraft[]) => {
+    if (!rows.length) return
+    try {
+      const listed = await writeRows(databaseId, rows, [])
+      const current = page
+      showDatabase(listed, databaseId, current?.id === databaseId ? current.body : '', current?.title ?? '')
+    } catch (error) {
+      const listed = await window.zention.listPages()
+      if (listed.ok) setPages(listed.pages)
+      throw error
+    }
+  }
+
+  const renamePageMeta = async (id: string, nextTitle: string) => {
+    const result = await window.zention.renamePage(id, nextTitle)
+    if (!result.ok) {
+      notify(result.error)
+      return
+    }
+    setPages((current) => current.map((item) => (item.id === id ? { ...item, ...result.page } : item)))
+    setPage((current) => (current?.id === id ? { ...current, ...result.page, body: current.body } : current))
+    if (page?.id === id) setTitle(result.page.title)
   }
 
   const organize = async (id: string, patch: PagePatch) => {
@@ -489,6 +580,16 @@ export default function App() {
         <button type="button" className="new-page" onClick={() => void create()}>
           {t('newPage')}
         </button>
+        <button
+          type="button"
+          className="new-page quiet"
+          onClick={() => {
+            if (!leaveExternal()) return
+            setDbAiOpen(true)
+          }}
+        >
+          {t('dbNew')}
+        </button>
         <nav>
           <div className="side-label">{t('notes')}</div>
           {external ? (
@@ -595,9 +696,10 @@ export default function App() {
                   {syncing ? t('syncing', { percent: syncProgress?.percent ?? 0 }) : t('sync')}
                 </button>
               </div>
-              {!external && page && (page.folder || page.group || (page.tags ?? []).length > 0) ? (
+              {!external && page && (page.kind === 'database' || page.folder || page.group || (page.tags ?? []).length > 0) ? (
                 <div className="page-meta">
-                  {page.folder ? <span className="pill">{t('folder')}</span> : null}
+                  {page.kind === 'database' ? <span className="pill">{t('dbPill')}</span> : null}
+                  {page.folder && page.kind !== 'database' ? <span className="pill">{t('folder')}</span> : null}
                   {page.group ? <span className="pill">{page.group}</span> : null}
                   {(page.tags ?? []).map((item) => (
                     <span key={item} className="pill">#{item}</span>
@@ -617,6 +719,18 @@ export default function App() {
                   onToast={notify}
                   onNeedKey={() => setSettingsOpen(true)}
                   exportHandle={exportHandle}
+                />
+              ) : page?.kind === 'database' ? (
+                <DatabasePane
+                  database={page}
+                  pages={pages}
+                  onOrganize={(id, patch) => void organize(id, patch)}
+                  onRename={(id, nextTitle) => void renamePageMeta(id, nextTitle)}
+                  onOpenRow={(id) => void openWorkspace(id)}
+                  onAddRow={() => void create(page.id)}
+                  onCreateRows={(rows) => createDatabaseRows(page.id, rows)}
+                  onNeedKey={() => setSettingsOpen(true)}
+                  onDeleteRow={(id) => void remove(id)}
                 />
               ) : page ? (
                 <EditorPane
@@ -650,6 +764,7 @@ export default function App() {
           onOpenGithub={() => setGithubOpen(true)}
           onGithubChange={setSettings}
           onToast={notify}
+          onFlushNotes={() => flushNotes()}
         />
       )}
       {githubOpen && (
@@ -682,6 +797,18 @@ export default function App() {
             </div>
           </div>
         </div>
+      ) : null}
+      {dbAiOpen ? (
+        <DatabaseAiDialog
+          scope="create"
+          onClose={() => setDbAiOpen(false)}
+          onBlank={() => {
+            setDbAiOpen(false)
+            void createDatabase()
+          }}
+          onNeedKey={() => setSettingsOpen(true)}
+          onApply={applyAiDatabase}
+        />
       ) : null}
       {toast ? <div className="toast">{toast}</div> : null}
       {dragOver ? <div className="drop-mask">{t('dropMd')}</div> : null}

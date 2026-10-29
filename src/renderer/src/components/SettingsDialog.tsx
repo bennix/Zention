@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LOCALES } from '../../../shared/i18n'
-import type { SettingsView, UpdateStatus } from '../../../shared/types'
+import type { AssetScanProgress, SettingsView, UpdateStatus } from '../../../shared/types'
 import { useI18n } from '../i18n'
 
 export function SettingsDialog({
@@ -15,6 +15,7 @@ export function SettingsDialog({
   onOpenGithub,
   onGithubChange,
   onToast,
+  onFlushNotes,
 }: {
   settings: SettingsView
   version: string
@@ -26,6 +27,7 @@ export function SettingsDialog({
   onOpenGithub: () => void
   onGithubChange: (settings: SettingsView) => void
   onToast: (message: string) => void
+  onFlushNotes: () => Promise<void>
   onSave: (
     patch: {
       apiKey?: string
@@ -57,6 +59,9 @@ export function SettingsDialog({
   const [testing, setTesting] = useState('')
   const [reports, setReports] = useState<Record<string, { ok: boolean; text: string }>>({})
   const [githubBusy, setGithubBusy] = useState(false)
+  const [assetBusy, setAssetBusy] = useState<'scan' | 'clean' | ''>('')
+  const [assetReport, setAssetReport] = useState<{ unused: string[]; total: number; used: number } | null>(null)
+  const [assetProgress, setAssetProgress] = useState<AssetScanProgress | null>(null)
 
   const runTest = async (kind: 'key' | 'chat' | 'image', model?: string) => {
     const id = kind === 'key' ? 'key' : `${kind}:${model}`
@@ -103,6 +108,8 @@ export function SettingsDialog({
     if (settings.proxyConfigured) return
     void detect()
   }, [settings.proxyConfigured])
+
+  useEffect(() => window.zention.onAssetProgress(setAssetProgress), [])
 
   const reveal = async () => {
     const result = await window.zention.revealSecret('apiKey')
@@ -188,6 +195,91 @@ export function SettingsDialog({
                 {t('updateRestart')}
               </button>
             ) : null}
+          </div>
+        </section>
+        <section>
+          <h3>{t('assetsSection')}</h3>
+          <p className="hint">{t('assetsHint')}</p>
+          {assetReport ? (
+            <p className={assetReport.unused.length ? 'hint' : 'test-ok'}>
+              {assetReport.unused.length
+                ? t('assetsFound', {
+                    count: assetReport.unused.length,
+                    total: assetReport.total,
+                    used: assetReport.used,
+                  })
+                : t('assetsNone', { total: assetReport.total })}
+            </p>
+          ) : null}
+          {assetBusy && assetProgress ? (
+            <div className="sync-progress">
+              <div className="sync-progress-track">
+                <div
+                  style={{
+                    width: `${assetProgress.total ? Math.round((assetProgress.done / assetProgress.total) * 100) : 0}%`,
+                  }}
+                />
+              </div>
+              <div className="sync-progress-meta">
+                <span>
+                  {assetProgress.phase === 'pages'
+                    ? t('assetsScanPages', { done: assetProgress.done, total: assetProgress.total })
+                    : assetProgress.phase === 'assets'
+                      ? t('assetsScanFiles', { done: assetProgress.done, total: assetProgress.total })
+                      : t('assetsTrashing', { done: assetProgress.done, total: assetProgress.total })}
+                </span>
+                <strong>
+                  {t(assetProgress.phase === 'pages' ? 'assetsSpeedPages' : 'assetsSpeedFiles', {
+                    speed: assetProgress.perSecond,
+                  })}
+                </strong>
+              </div>
+            </div>
+          ) : null}
+          <div className="row">
+            <button
+              type="button"
+              disabled={Boolean(assetBusy)}
+              onClick={() => {
+                void (async () => {
+                  setAssetBusy('scan')
+                  setAssetProgress(null)
+                  await onFlushNotes()
+                  const result = await window.zention.listUnusedAssets()
+                  setAssetBusy('')
+                  if (!result.ok) {
+                    onToast(result.error)
+                    return
+                  }
+                  setAssetReport({ unused: result.unused, total: result.total, used: result.used })
+                })()
+              }}
+            >
+              {assetBusy === 'scan' ? t('assetsScanning') : t('assetsScan')}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(assetBusy) || !assetReport?.unused.length}
+              onClick={() => {
+                if (!assetReport?.unused.length) return
+                if (!window.confirm(t('assetsConfirm', { count: assetReport.unused.length }))) return
+                void (async () => {
+                  setAssetBusy('clean')
+                  setAssetProgress(null)
+                  await onFlushNotes()
+                  const result = await window.zention.cleanUnusedAssets()
+                  setAssetBusy('')
+                  if (!result.ok) {
+                    onToast(result.error)
+                    return
+                  }
+                  setAssetReport({ unused: [], total: result.kept, used: result.kept })
+                  onToast(t('assetsCleaned', { count: result.deleted.length, kept: result.kept }))
+                })()
+              }}
+            >
+              {assetBusy === 'clean' ? t('assetsCleaning') : t('assetsClean')}
+            </button>
           </div>
         </section>
         <label>

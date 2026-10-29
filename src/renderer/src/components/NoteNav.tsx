@@ -11,10 +11,14 @@ function knownParent(page: PageMeta, ids: Set<string>): string | null {
 function buildTree(pages: PageMeta[], parentId: string | null, ids: Set<string>, rank: Map<string, number>): Node[] {
   return pages
     .filter((page) => knownParent(page, ids) === parentId)
-    .map((page) => ({ page, children: buildTree(pages, page.id, ids, rank) }))
+    .map((page) => ({
+      page,
+      // Database rows are managed inside the database pane, not the sidebar tree.
+      children: page.kind === 'database' ? [] : buildTree(pages, page.id, ids, rank),
+    }))
     .sort((a, b) => {
-      const folderA = a.page.folder || a.children.length > 0 ? 0 : 1
-      const folderB = b.page.folder || b.children.length > 0 ? 0 : 1
+      const folderA = a.page.folder || a.children.length > 0 || a.page.kind === 'database' ? 0 : 1
+      const folderB = b.page.folder || b.children.length > 0 || b.page.kind === 'database' ? 0 : 1
       if (folderA !== folderB) return folderA - folderB
       return (rank.get(a.page.id) ?? 0) - (rank.get(b.page.id) ?? 0)
     })
@@ -92,13 +96,13 @@ export function NoteNav({
     const sections = [{ name: '', items: ungrouped }, ...[...groups.entries()].sort(([a], [b]) => a.localeCompare(b, 'zh')).map(([name, items]) => ({ name, items }))]
     return sections.flatMap((section) => {
       const rows: ReactNode[] = section.items.flatMap((node): ReactNode[] => {
-        const folder = node.page.folder === true || node.children.length > 0
+        const folder = node.page.kind === 'database' ? false : node.page.folder === true || node.children.length > 0
         const open = tag ? true : collapsed[node.page.id] !== true
         const label = node.page.title.trim() || t('untitled')
         return [
           <div key={node.page.id} className="page-block" style={{ marginInlineStart: depth * 12 }}>
             <div
-              className={['page-row', node.page.id === activeId ? 'active' : '', node.page.id === dropId ? 'drop-target' : '', node.page.id === dragId.current ? 'dragging' : ''].filter(Boolean).join(' ')}
+              className={['page-row', node.page.id === activeId ? 'active' : '', node.page.id === dropId ? 'drop-target' : '', node.page.id === dragId.current ? 'dragging' : '', node.page.kind === 'database' ? 'is-database' : ''].filter(Boolean).join(' ')}
               draggable
               title={t('dragInto')}
               onDragStart={(event) => {
@@ -145,6 +149,7 @@ export function NoteNav({
                 <span className="twist" />
               )}
               <button type="button" className="page-name" onClick={() => onOpen(node.page.id)}>
+                {node.page.kind === 'database' ? <span className="db-mark" aria-hidden="true">▦</span> : null}
                 {label}
               </button>
               <button type="button" className="icon" aria-label={t('setGroup')} onClick={(event) => openMenu(node.page.id, event.currentTarget, 'main')}>

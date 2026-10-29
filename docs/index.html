@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Zention — 本地笔记，写完再同步</title>
-  <meta name="description" content="Zention 把公式、代码、图片和 Markdown 留在本机。需要时再选择方向，和 GitHub 对齐。检查更新会走你保存的代理。" />
+  <meta name="description" content="Zention 是本地 Markdown 笔记。支持公式、代码、表格、数据库和 AI。笔记留在本机，需要对齐时再选择方向和 GitHub 同步。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='48' y='48' width='928' height='928' rx='212' fill='%230F7B6C'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -109,16 +109,16 @@
         <div class="formula">E = mc²</div>
       </section>
       <section>
-        <p class="kicker">本地笔记 · 0.1.13</p>
+        <p class="kicker">本地笔记 · 0.1.14</p>
         <h1>一页纸，<br>写到可以同步。</h1>
-        <p class="lede">公式、图片、代码和 Markdown 先留在你的电脑上。要对齐时，先选哪一边覆盖哪一边，再和 GitHub 同步。检查更新会跟着设置里的代理走。</p>
+        <p class="lede">公式、图片、代码、表格和数据库先留在你的电脑上。表格可以加减行列、合并单元格。数据库的行仍是一篇笔记。建库、改属性和筛选都可以用现成的指令模板，让 AI 先起草。要对齐时，先选哪一边覆盖哪一边，再和 GitHub 同步。</p>
         <div class="downloads">
-          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.13-mac.dmg">macOS<small>已公证 DMG</small></a>
-          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.13-win.exe">Windows<small>64 位安装包</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.13-linux-amd64.deb">Linux DEB<small>x64</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.13-linux-arm64.deb">Linux DEB<small>arm64</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.13-linux-x86_64.rpm">Linux RPM<small>x64</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.13-linux-aarch64.rpm">Linux RPM<small>arm64</small></a>
+          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-mac.dmg">macOS<small>已公证 DMG</small></a>
+          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-win.exe">Windows<small>64 位安装包</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-amd64.deb">Linux DEB<small>x64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-arm64.deb">Linux DEB<small>arm64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-x86_64.rpm">Linux RPM<small>x64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-aarch64.rpm">Linux RPM<small>arm64</small></a>
         </div>
         <p class="note">macOS 安装包使用 Developer ID 签名，并经过 Apple 公证。笔记默认只在本机，密钥和 GitHub token 也只加密保存在这台电脑上。</p>
       </section>
@@ -131,7 +131,19 @@
       </article>
       <article>
         <h3>斜杠就能插入</h3>
-        <p>输入 / 可以插入标题、列表、待办、引用、表格和分割线。代码块会按语言上色。Mermaid 写完后画成图。本地图片和网络图片都能放进来。</p>
+        <p>输入 / 可以插入标题、列表、待办、引用、表格和分割线。代码块会按语言上色。Mermaid 写完后画成图。本地图片和网络图片都能放进来。设置里可以扫描 assets：会显示读笔记和核对图片的进度与速度，未使用的本地图片会移到废纸篓，而不是直接删掉，之后还能从废纸篓恢复。</p>
+      </article>
+      <article class="wide">
+        <h3>Markdown 表格跟着光标走</h3>
+        <p>光标在表格里时，工具条浮在这张表的上方；上面放不下就改到下方，滚动时跟着走。可以在上方或下方加行，在左侧或右侧加列，也可以删掉当前行或当前列。按住 Shift 点选相邻单元格后，可以合并；已经合并的格子可以再拆开。表头行可以开关。列宽可以拖。整张表可以删：点工具条上的「删除表格」，或先点选整张表再按 Delete。</p>
+      </article>
+      <article class="wide">
+        <h3>数据库的每一行仍是一篇笔记</h3>
+        <p>侧栏可以新建数据库。每一行是一篇独立页面，点「打开」就回到完整正文。属性可以是文本、数字、单选、多选、勾选或日期。同一份数据有表格和看板两种看法。看板按一个单选属性分列，把卡片拖到另一列就会改掉那个值。筛选支持包含、等于和为空，只作用在当前视图。不需要的行可以在表格末尾或看板卡片上删除。</p>
+      </article>
+      <article class="wide">
+        <h3>建库和筛选可以让 AI 起草</h3>
+        <p>新建数据库时可以先选一个写好的指令：任务看板、阅读清单、客户跟进、会议纪要或习惯打卡。指令可以改，再生成标题、属性和示例行；也可以直接建一个空白库。打开已有的库之后，AI 可以调整属性、只补全空着的字段、生成示例行，或按你的描述改筛选。筛选条上还有单独的「AI 筛选」。模型返回的结构会先按现有属性规则检查，对不上的内容不会写入。</p>
       </article>
       <article>
         <h3>公式可以改，也可以认</h3>
@@ -151,7 +163,7 @@
       </article>
       <article>
         <h3>同步前必须选边</h3>
-        <p>和 GitHub 同步前会问方向：远程覆盖本地，或本地覆盖远程。这一次不会把两边合并。可以新建私有仓库，也可以绑定已有仓库。Token 需要 repo 权限，只加密留在本机。登录可以用网页 token，也可以用本机的 gh。</p>
+        <p>和 GitHub 同步前会问方向：远程覆盖本地，或本地覆盖远程。数据库的属性、视图、筛选和每一行的字段写在页面标记里，会跟着这一页一起走。同步上去的数据库文件里还有一张可读的表，拉回来时以标记为准，不会把那张表写进正文。可以新建私有仓库，也可以绑定已有仓库。Token 需要 repo 权限，只加密留在本机。登录可以用网页 token，也可以用本机的 gh。</p>
       </article>
       <article>
         <h3>更新跟着代理走</h3>
@@ -162,7 +174,7 @@
         <p>同一条代理地址同时用于 AI 对话、生图、GitHub 同步和检查更新。支持 HTTP 和 SOCKS，例如 127.0.0.1:7890。打开设置时会尝试填入系统代理，保存之后才生效。笔记本身不会因为开了代理就被上传。</p>
       </article>
     </section>
-    <footer>Zention 0.1.13 · <a href="https://github.com/bennix/Zention/releases/latest">全部下载</a></footer>
+    <footer>Zention 0.1.14 · <a href="https://github.com/bennix/Zention/releases/latest">全部下载</a></footer>
   </div>
 </body>
 </html>

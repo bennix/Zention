@@ -1,3 +1,5 @@
+import type { DbView, PropDef } from './database'
+
 export const ZENMUX_BASE_URL = 'https://zenmux.ai/api/v1'
 export const ZENMUX_VERTEX_BASE = 'https://zenmux.ai/api/vertex-ai/v1'
 export const ZENMUX_INVITE_URL = 'https://zenmux.ai/invite/GBQMC5'
@@ -27,6 +29,13 @@ export interface UpdateStatus {
 
 export type SyncDirection = 'remote' | 'local'
 
+export interface AssetScanProgress {
+  phase: 'pages' | 'assets' | 'trash'
+  done: number
+  total: number
+  perSecond: number
+}
+
 export interface PageMeta {
   id: string
   title: string
@@ -36,6 +45,11 @@ export interface PageMeta {
   folder?: boolean
   group?: string
   tags?: string[]
+  kind?: 'page' | 'database'
+  schema?: PropDef[]
+  views?: DbView[]
+  activeViewId?: string
+  props?: Record<string, unknown>
 }
 
 export interface PagePatch {
@@ -43,6 +57,11 @@ export interface PagePatch {
   folder?: boolean
   group?: string
   tags?: string[]
+  kind?: 'page' | 'database'
+  schema?: PropDef[]
+  views?: DbView[]
+  activeViewId?: string
+  props?: Record<string, unknown>
 }
 
 export interface PageData extends PageMeta {
@@ -116,6 +135,11 @@ export interface ZentionApi {
   readPage(id: string): Promise<Result<{ page: PageData }>>
   savePage(id: string, body: string): Promise<Result<Record<string, never>>>
   createPage(title?: string, parentId?: string | null): Promise<Result<{ page: PageData; pages: PageMeta[] }>>
+  createDatabase(title?: string): Promise<Result<{ page: PageData; pages: PageMeta[] }>>
+  createDatabaseRow(databaseId: string, title?: string): Promise<Result<{ page: PageData; pages: PageMeta[] }>>
+  listUnusedAssets(): Promise<Result<{ unused: string[]; total: number; used: number }>>
+  onAssetProgress(callback: (progress: AssetScanProgress) => void): () => void
+  cleanUnusedAssets(): Promise<Result<{ deleted: string[]; kept: number }>>
   organizePage(id: string, patch: PagePatch): Promise<Result<{ pages: PageMeta[] }>>
   renamePage(id: string, title: string): Promise<Result<{ page: PageMeta }>>
   deletePage(id: string): Promise<Result<{ pages: PageMeta[] }>>
