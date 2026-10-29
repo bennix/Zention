@@ -10,7 +10,8 @@ import { createAndSync, foldRemoteCopies, linkAndSync, loginWithGhCli, loginWith
 import { ensureGh, watchGhSetup } from './ghEnv'
 import { exportMarkdown, exportPdf } from './export'
 import { decodeExternalToken, importMarkdownPage, readExternalMarkdown, resolveExternalImage, saveExternalAs, saveExternalImage, writeExternalMarkdown } from './external'
-import { checkForAppUpdate, installDownloadedUpdate, setupAutoUpdate } from './update'
+import { rebuildAppMenu, setMenuUpdateHandlers } from './menu'
+import { applyUpdaterProxy, checkForAppUpdate, installDownloadedUpdate, setupAutoUpdate } from './update'
 import {
   createPage,
   deletePage,
@@ -130,7 +131,12 @@ function registerIpc(): void {
   )
   ipcMain.handle('settings:get', () => guard(async () => ({ settings: await viewSettings() })))
   ipcMain.handle('settings:update', (_event, patch: SettingsPatch) =>
-    guard(async () => ({ settings: await updateSettings(patch) })),
+    guard(async () => {
+      const settings = await updateSettings(patch)
+      if (patch.proxy !== undefined) await applyUpdaterProxy()
+      if (patch.locale !== undefined) rebuildAppMenu()
+      return { settings }
+    }),
   )
   ipcMain.handle('settings:reveal', (_event, which: 'apiKey' | 'githubToken') =>
     guard(async () => ({ value: await revealSecret(which) })),
@@ -335,6 +341,10 @@ app.whenReady().then(async () => {
     }
   })
   registerIpc()
+  setMenuUpdateHandlers({
+    check: () => void checkForAppUpdate(),
+    install: () => installDownloadedUpdate(),
+  })
   createWindow()
   setupAutoUpdate()
   app.on('activate', () => {
