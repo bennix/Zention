@@ -144,6 +144,7 @@ export interface ZentionApi {
   renamePage(id: string, title: string): Promise<Result<{ page: PageMeta }>>
   deletePage(id: string): Promise<Result<{ pages: PageMeta[] }>>
   pickImage(): Promise<Result<{ path: string | null }>>
+  pickMedia(kind?: 'audio' | 'video' | 'any'): Promise<Result<{ path: string | null }>>
   saveImage(payload: { base64: string; ext: string }): Promise<Result<{ path: string }>>
   aiComplete(input: ChatInput, onDelta?: (delta: string) => void, onReset?: () => void): Promise<Result<{ content: string }>>
   aiImage(input: {

@@ -29,6 +29,7 @@ import {
   resolveAssetPath,
   revealSecret,
   saveAsset,
+  saveMedia,
   savePage,
   updateSettings,
   viewSettings,
@@ -211,6 +212,27 @@ function registerIpc(): void {
       const bytes = await import('node:fs').then((fs) => fs.promises.readFile(file))
       const ext = pickSafeExt(file)
       return { path: await saveAsset(bytes, ext) }
+    }),
+  )
+  ipcMain.handle('asset:pick-media', (_event, kind: 'audio' | 'video' | 'any' = 'any') =>
+    guard(async () => {
+      const audio = { name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }
+      const video = { name: 'Video', extensions: ['mp4', 'webm', 'mov', 'm4v'] }
+      const filters =
+        kind === 'audio' ? [audio] : kind === 'video' ? [video] : [{ name: 'Media', extensions: [...audio.extensions, ...video.extensions] }, audio, video]
+      const options = {
+        title: translate(currentLocale(), kind === 'audio' ? 'pickAudioTitle' : kind === 'video' ? 'pickVideoTitle' : 'pickMediaTitle'),
+        properties: ['openFile'] as Array<'openFile'>,
+        filters,
+      }
+      const result = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options)
+      if (result.canceled || !result.filePaths[0]) return { path: null }
+      const file = result.filePaths[0]
+      const bytes = await import('node:fs').then((fs) => fs.promises.readFile(file))
+      const ext = pickSafeExt(file, 'media')
+      return { path: await saveMedia(bytes, ext) }
     }),
   )
   ipcMain.handle('asset:save', (_event, payload: { base64: string; ext: string }) =>

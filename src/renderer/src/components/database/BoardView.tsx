@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import type { PageMeta } from '../../../../shared/types'
 import type { PropDef } from '../../../../shared/database'
+import { displayImageSrc } from '../../editor/image'
 import { useI18n } from '../../i18n'
 
 export function BoardView({
   rows,
+  schema,
   groupProp,
   onOpenRow,
   onMove,
   onDelete,
 }: {
   rows: PageMeta[]
+  schema: PropDef[]
   groupProp: PropDef | undefined
   onOpenRow: (id: string) => void
   onMove: (id: string, value: string | undefined) => void
@@ -18,6 +21,7 @@ export function BoardView({
 }) {
   const { t } = useI18n()
   const [dragging, setDragging] = useState<string | null>(null)
+  const coverDef = schema.find((def) => def.type === 'image')
   const columns = [
     ...(groupProp?.options ?? []).map((option) => ({ key: option, label: option })),
     { key: '', label: t('dbUngrouped') },
@@ -58,7 +62,9 @@ export function BoardView({
               <span>{cards.length}</span>
             </div>
             <div className="db-board-list">
-              {cards.map((row) => (
+              {cards.map((row) => {
+                const cover = coverDef ? String(row.props?.[coverDef.id] ?? '').trim() : ''
+                return (
                 <div
                   key={row.id}
                   className="db-card"
@@ -70,6 +76,11 @@ export function BoardView({
                   }}
                   onDragEnd={() => setDragging(null)}
                 >
+                  {cover ? (
+                    <button type="button" className="db-card-cover" onClick={() => onOpenRow(row.id)}>
+                      <img src={displayImageSrc(cover)} alt="" />
+                    </button>
+                  ) : null}
                   <button type="button" className="db-card-open" onClick={() => onOpenRow(row.id)}>
                     {row.title.trim() || t('untitled')}
                   </button>
@@ -82,7 +93,8 @@ export function BoardView({
                     ×
                   </button>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )

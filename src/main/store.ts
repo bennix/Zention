@@ -54,6 +54,7 @@ let userDataDir = ''
 let workspaceDir = ''
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'])
+const MEDIA_EXT = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'mp4', 'webm', 'mov', 'm4v'])
 
 export function initPaths(userData: string): void {
   userDataDir = userData
@@ -74,6 +75,10 @@ function pagesDir(): string {
 
 function assetsDir(): string {
   return path.join(workspaceDir, 'assets')
+}
+
+function mediaDir(): string {
+  return path.join(workspaceDir, 'media')
 }
 
 function indexPath(): string {
@@ -225,6 +230,7 @@ async function writeDisk(disk: DiskSettings): Promise<void> {
 export async function initStore(): Promise<void> {
   await fs.mkdir(pagesDir(), { recursive: true })
   await fs.mkdir(assetsDir(), { recursive: true })
+  await fs.mkdir(mediaDir(), { recursive: true })
   const index = await readJson<IndexFile>(indexPath())
   if (!index?.pages?.length) {
     const page = await createPageRecord('开始使用', WELCOME)
@@ -511,9 +517,10 @@ export async function deletePage(id: string): Promise<PageMeta[]> {
   return pages
 }
 
-export function pickSafeExt(file: string): string {
+export function pickSafeExt(file: string, kind: 'image' | 'media' = 'image'): string {
   const ext = path.extname(file).slice(1).toLowerCase()
-  if (!IMAGE_EXT.has(ext)) throw new Error(translate(currentLocale(), 'imageBad'))
+  const allowed = kind === 'media' ? MEDIA_EXT : IMAGE_EXT
+  if (!allowed.has(ext)) throw new Error(translate(currentLocale(), kind === 'media' ? 'mediaBad' : 'imageBad'))
   return ext
 }
 
@@ -525,18 +532,28 @@ export async function saveAsset(bytes: Buffer, ext: string): Promise<string> {
   return `assets/${name}`
 }
 
-/** Collect `assets/…` filenames referenced by markdown/html in workspace notes. */
+export async function saveMedia(bytes: Buffer, ext: string): Promise<string> {
+  const clean = ext.toLowerCase().replace(/^\./, '')
+  if (!MEDIA_EXT.has(clean)) throw new Error(translate(currentLocale(), 'mediaBad'))
+  await fs.mkdir(mediaDir(), { recursive: true })
+  const name = `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}.${clean}`
+  await fs.writeFile(path.join(mediaDir(), name), bytes)
+  return `media/${name}`
+}
+
+/** Collect `assets/…` and `media/…` filenames referenced by markdown/html in workspace notes. */
 function collectAssetNames(body: string, used: Set<string>): void {
-  const pattern = /(?:\(|["'=])(?:\.\/|(?:\.\.\/)*)?assets\/([^)"'\s?#]+)/gi
+  const pattern = /(?:\(|["'=])(?:\.\/|(?:\.\.\/)*)?(assets|media)\/([^)"'\s?#]+)/gi
   for (const match of body.matchAll(pattern)) {
-    let name = match[1] ?? ''
+    const folder = (match[1] ?? 'assets').toLowerCase()
+    let name = match[2] ?? ''
     try {
       name = decodeURIComponent(name)
     } catch {
       /* keep raw */
     }
     name = path.basename(name.replace(/\\/g, '/'))
-    if (name && !name.startsWith('.')) used.add(name)
+    if (name && !name.startsWith('.')) used.add(`${folder}/${name}`)
   }
 }
 
@@ -583,20 +600,27 @@ export async function listUnusedAssets(
     report('pages', done, pages.length)
   })
   report('pages', pages.length, pages.length, true)
-  const entries = await fs.readdir(assetsDir(), { withFileTypes: true }).catch(() => [])
-  const images = entries.filter((entry) => {
-    if (!entry.isFile() || entry.name.startsWith('.')) return false
-    return IMAGE_EXT.has(path.extname(entry.name).slice(1).toLowerCase())
-  })
+  const listed: Array<{ key: string; abs: string }> = []
+  for (const [folder, dir, allowed] of [
+    ['assets', assetsDir(), IMAGE_EXT] as const,
+    ['media', mediaDir(), MEDIA_EXT] as const,
+  ]) {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (!entry.isFile() || entry.name.startsWith('.')) continue
+      if (!allowed.has(path.extname(entry.name).slice(1).toLowerCase())) continue
+      listed.push({ key: `${folder}/${entry.name}`, abs: path.join(dir, entry.name) })
+    }
+  }
   const unused: string[] = []
-  report('assets', 0, images.length, true)
-  images.forEach((entry, index) => {
-    if (!used.has(entry.name)) unused.push(entry.name)
-    report('assets', index + 1, images.length)
+  report('assets', 0, listed.length, true)
+  listed.forEach((entry, index) => {
+    if (!used.has(entry.key)) unused.push(entry.key)
+    report('assets', index + 1, listed.length)
   })
-  report('assets', images.length, images.length, true)
+  report('assets', listed.length, listed.length, true)
   unused.sort((a, b) => a.localeCompare(b))
-  return { unused, total: images.length, used: images.length - unused.length }
+  return { unused, total: listed.length, used: listed.length - unused.length }
 }
 
 export async function cleanUnusedAssets(
@@ -616,11 +640,16 @@ export async function cleanUnusedAssets(
     onProgress({ phase: 'trash', done, total: unused.length, perSecond: Math.round(done / seconds) })
   }
   report(0, true)
-  for (const name of unused) {
-    const base = path.basename(name)
-    if (base !== name || base.startsWith('.')) continue
-    await trash(path.join(assetsDir(), base))
-    deleted.push(base)
+  for (const key of unused) {
+    const normalized = key.replace(/\\/g, '/')
+    const match = /^(assets|media)\/([^/]+)$/.exec(normalized)
+    if (!match) continue
+    const folder = match[1]!
+    const base = match[2]!
+    if (base.startsWith('.') || base.includes('..')) continue
+    const abs = path.join(folder === 'media' ? mediaDir() : assetsDir(), base)
+    await trash(abs)
+    deleted.push(normalized)
     report(deleted.length)
   }
   report(unused.length, true)
@@ -668,7 +697,7 @@ export async function readLocalPages(): Promise<Array<{ id: string; title: strin
 
 export async function replaceWorkspace(
   pages: Array<{ id: string; title: string; body: string; organize: PageOrganize | null }>,
-  assets: Array<{ name: string; bytes: Buffer }>,
+  assets: Array<{ name: string; bytes: Buffer; folder?: 'assets' | 'media' }>,
 ): Promise<void> {
   const existing = await readIndex()
   const previous = new Map(existing.map((page) => [page.id, page]))
@@ -699,13 +728,25 @@ export async function replaceWorkspace(
   }
   await writeIndex(next)
   const keepAssets = new Set<string>()
+  const keepMedia = new Set<string>()
+  await fs.mkdir(mediaDir(), { recursive: true })
   for (const asset of assets) {
-    await saveNamedAsset(asset.name, asset.bytes)
-    keepAssets.add(asset.name)
+    const folder = asset.folder === 'media' ? 'media' : 'assets'
+    if (folder === 'media') {
+      await saveNamedMedia(asset.name, asset.bytes)
+      keepMedia.add(asset.name)
+    } else {
+      await saveNamedAsset(asset.name, asset.bytes)
+      keepAssets.add(asset.name)
+    }
   }
   for (const name of await fs.readdir(assetsDir()).catch(() => [] as string[])) {
     if (name.startsWith('.') || keepAssets.has(name)) continue
     await fs.rm(path.join(assetsDir(), name), { force: true })
+  }
+  for (const name of await fs.readdir(mediaDir()).catch(() => [] as string[])) {
+    if (name.startsWith('.') || keepMedia.has(name)) continue
+    await fs.rm(path.join(mediaDir(), name), { force: true })
   }
 }
 
@@ -736,6 +777,15 @@ export async function saveNamedAsset(name: string, bytes: Buffer): Promise<void>
     throw new Error(translate(currentLocale(), 'imageBad'))
   }
   await fs.writeFile(path.join(assetsDir(), base), bytes)
+}
+
+export async function saveNamedMedia(name: string, bytes: Buffer): Promise<void> {
+  const base = path.basename(name)
+  if (base !== name || base.startsWith('.') || !MEDIA_EXT.has(path.extname(base).slice(1).toLowerCase())) {
+    throw new Error(translate(currentLocale(), 'mediaBad'))
+  }
+  await fs.mkdir(mediaDir(), { recursive: true })
+  await fs.writeFile(path.join(mediaDir(), base), bytes)
 }
 
 function pageSlug(title: string, id: string, used: Set<string>): string {
@@ -818,12 +868,17 @@ export async function listSyncFiles(): Promise<Array<{ path: string; bytes: Buff
     const body = await fs.readFile(pageFile(page.id), 'utf8').catch(() => '')
     const title = pageTitleOf(page)
     const rel = paths.get(page.id) ?? `pages/${page.id}.md`
-    const assetRoot = `${'../'.repeat(Math.max(rel.split('/').length - 1, 1))}assets/`
+    const up = '../'.repeat(Math.max(rel.split('/').length - 1, 1))
+    const assetRoot = `${up}assets/`
+    const mediaRoot = `${up}media/`
     const syncedBody = linksForGithub(
       body
         .replace(/^\uFEFF/, '')
         .replace(/^\n+/, '')
-        .replace(/\]\((?:\.\/|(?:\.\.\/)+)?assets\//g, `](${assetRoot}`),
+        .replace(/\]\((?:\.\/|(?:\.\.\/)+)?assets\//g, `](${assetRoot}`)
+        .replace(/\]\((?:\.\/|(?:\.\.\/)+)?media\//g, `](${mediaRoot}`)
+        .replace(/((?:src|href)=["'])(?:\.\/|(?:\.\.\/)+)?assets\//gi, `$1${assetRoot}`)
+        .replace(/((?:src|href)=["'])(?:\.\/|(?:\.\.\/)+)?media\//gi, `$1${mediaRoot}`),
       rel,
       paths,
     )
@@ -840,13 +895,20 @@ export async function listSyncFiles(): Promise<Array<{ path: string; bytes: Buff
     files.push({ path: rel, bytes: Buffer.from(content, 'utf8'), label: `页面「${title}」` })
   }
   files.unshift({ path: '目录.md', bytes: Buffer.from(`${catalog.join('\n')}\n`, 'utf8'), label: '目录' })
-  const names = await fs.readdir(assetsDir()).catch(() => [] as string[])
-  for (const name of names) {
+  for (const name of await fs.readdir(assetsDir()).catch(() => [] as string[])) {
     if (name.startsWith('.')) continue
     const abs = path.join(assetsDir(), name)
     const stat = await fs.stat(abs)
     if (!stat.isFile()) continue
     files.push({ path: `assets/${name}`, bytes: await fs.readFile(abs), label: `图片 ${name}` })
+  }
+  for (const name of await fs.readdir(mediaDir()).catch(() => [] as string[])) {
+    if (name.startsWith('.')) continue
+    const abs = path.join(mediaDir(), name)
+    const stat = await fs.stat(abs)
+    if (!stat.isFile()) continue
+    if (!MEDIA_EXT.has(path.extname(name).slice(1).toLowerCase())) continue
+    files.push({ path: `media/${name}`, bytes: await fs.readFile(abs), label: `媒体 ${name}` })
   }
   return files
 }

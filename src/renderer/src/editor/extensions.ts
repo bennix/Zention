@@ -14,6 +14,8 @@ import { BlockDragHandle } from './blockDragHandle'
 import { BlockKeymap } from './blockKeymap'
 import { PageLink } from './pageLink'
 import { SelectionSlash, SlashCommand, type SlashController, type SlashItem } from './slash'
+import { ActionButton, Column, Columns, TabPane, TableOfContents, Tabs, ToggleBlock } from './layoutBlocks'
+import { MediaBlock } from './media'
 import type { PageMeta } from '../../../shared/types'
 import { t } from '../i18n'
 
@@ -29,6 +31,7 @@ export function buildExtensions(options: {
       link: { openOnClick: false, protocols: ['zention-page'] },
       codeBlock: false,
       underline: false,
+      heading: { levels: [1, 2, 3] },
       dropcursor: { color: false, width: 6, class: 'zention-dropcursor' },
     }),
     CodeBlockLowlight.extend({
@@ -62,5 +65,13 @@ export function buildExtensions(options: {
     SelectionSlash,
     BlockKeymap,
     BlockDragHandle,
+    TableOfContents,
+    Column,
+    Columns,
+    ToggleBlock,
+    TabPane,
+    Tabs,
+    ActionButton,
+    MediaBlock,
   ]
 }

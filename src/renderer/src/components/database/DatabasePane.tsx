@@ -1,13 +1,53 @@
 import { useMemo, useState } from 'react'
 import type { PageMeta, PagePatch } from '../../../../shared/types'
 import type { DbAiContext, DbAiResult, DbAiRowDraft } from '../../../../shared/databaseAi'
-import { rowMatchesFilters, type DbFilter, type DbView, type PropDef } from '../../../../shared/database'
+import {
+  DB_VIEW_TYPES,
+  isChartView,
+  rowMatchesFilters,
+  type DbFilter,
+  type DbView,
+  type DbViewType,
+  type PropDef,
+} from '../../../../shared/database'
 import { useI18n } from '../../i18n'
+import type { MessageKey } from '../../../../shared/i18n'
 import { BoardView } from './BoardView'
+import { CalendarView } from './CalendarView'
+import { ChartView } from './ChartView'
 import { DatabaseAiDialog } from './DatabaseAiDialog'
 import { FilterBar } from './FilterBar'
+import { GalleryView } from './GalleryView'
+import { ListView } from './ListView'
 import { PropertyEditor } from './PropertyEditor'
 import { TableView } from './TableView'
+import { TimelineView } from './TimelineView'
+
+const VIEW_LABEL: Record<DbViewType, MessageKey> = {
+  table: 'dbViewTable',
+  board: 'dbViewBoard',
+  gallery: 'dbViewGallery',
+  list: 'dbViewList',
+  calendar: 'dbViewCalendar',
+  timeline: 'dbViewTimeline',
+  bar: 'dbViewBar',
+  line: 'dbViewLine',
+  donut: 'dbViewDonut',
+  number: 'dbViewNumber',
+}
+
+const DEFAULT_VIEW_NAME: Record<DbViewType, string> = {
+  table: '表格',
+  board: '看板',
+  gallery: '画廊',
+  list: '列表',
+  calendar: '日历',
+  timeline: '时间线',
+  bar: '柱状图',
+  line: '折线图',
+  donut: '环形图',
+  number: '数字',
+}
 
 export function DatabasePane({
   database,
@@ -63,6 +103,30 @@ export function DatabasePane({
     void onOrganize(database.id, { schema: next })
   }
 
+  const addView = (type: DbViewType) => {
+    const id = `${type}-${Date.now().toString(36).slice(-4)}`
+    const select = schema.find((def) => def.type === 'select')
+    const date = schema.find((def) => def.type === 'date')
+    const number = schema.find((def) => def.type === 'number')
+    const view: DbView = {
+      id,
+      name: DEFAULT_VIEW_NAME[type],
+      type,
+      filters: [],
+    }
+    if (type === 'board' || isChartView(type)) {
+      if (select) view.groupBy = select.id
+    }
+    if (type === 'calendar' || type === 'timeline') {
+      if (date) view.dateProp = date.id
+    }
+    if (isChartView(type)) {
+      view.chartOp = 'count'
+      if (number) view.valueProp = number.id
+    }
+    void onOrganize(database.id, { views: [...views, view], activeViewId: id })
+  }
+
   const context: DbAiContext = {
     title: database.title,
     schema,
@@ -111,7 +175,15 @@ export function DatabasePane({
     void onOrganize(rowId, { props })
   }
 
-  const groupProp = schema.find((def) => def.id === activeView?.groupBy) ?? schema.find((def) => def.type === 'select')
+  const groupProp =
+    schema.find((def) => def.id === activeView?.groupBy) ?? schema.find((def) => def.type === 'select')
+  const dateProp =
+    schema.find((def) => def.id === activeView?.dateProp && def.type === 'date') ??
+    schema.find((def) => def.type === 'date')
+  const type = activeView?.type ?? 'table'
+  const showDateConfig = type === 'calendar' || type === 'timeline'
+  const showChartConfig = isChartView(type)
+  const showGroupConfig = type === 'board' || showChartConfig
 
   return (
     <div className="db-pane">
@@ -124,10 +196,30 @@ export function DatabasePane({
               className={view.id === activeView?.id ? 'active' : ''}
               onClick={() => setActiveView(view.id)}
             >
-              {view.type === 'board' ? t('dbViewBoard') : t('dbViewTable')}
-              {view.name && view.name !== '表格' && view.name !== '看板' ? ` · ${view.name}` : ''}
+              {t(VIEW_LABEL[view.type] ?? 'dbViewTable')}
+              {view.name && view.name !== DEFAULT_VIEW_NAME[view.type] ? ` · ${view.name}` : ''}
             </button>
           ))}
+          <label className="db-add-view">
+            <span>{t('dbAddView')}</span>
+            <select
+              value=""
+              onChange={(event) => {
+                const next = event.target.value as DbViewType
+                if ((DB_VIEW_TYPES as readonly string[]).includes(next)) addView(next)
+                event.target.value = ''
+              }}
+            >
+              <option value="" disabled>
+                {t('dbAddView')}
+              </option>
+              {DB_VIEW_TYPES.map((item) => (
+                <option key={item} value={item}>
+                  {t(VIEW_LABEL[item])}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="db-actions">
           <button type="button" onClick={onAddRow}>
@@ -141,18 +233,99 @@ export function DatabasePane({
           </button>
         </div>
       </div>
+      {activeView && (showDateConfig || showGroupConfig || showChartConfig) ? (
+        <div className="db-view-config">
+          {showDateConfig ? (
+            <label>
+              {t('dbDateProp')}
+              <select
+                value={activeView.dateProp ?? dateProp?.id ?? ''}
+                onChange={(event) => updateView({ dateProp: event.target.value || undefined })}
+              >
+                <option value="">{t('dbEmpty')}</option>
+                {schema
+                  .filter((def) => def.type === 'date')
+                  .map((def) => (
+                    <option key={def.id} value={def.id}>
+                      {def.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
+          {showGroupConfig ? (
+            <label>
+              {t('dbGroupProp')}
+              <select
+                value={activeView.groupBy ?? groupProp?.id ?? ''}
+                onChange={(event) => updateView({ groupBy: event.target.value || undefined })}
+              >
+                <option value="">{t('dbEmpty')}</option>
+                {schema
+                  .filter((def) => def.type === 'select' || def.type === 'text')
+                  .map((def) => (
+                    <option key={def.id} value={def.id}>
+                      {def.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
+          {showChartConfig ? (
+            <>
+              <label>
+                {t('dbChartOp')}
+                <select
+                  value={activeView.chartOp ?? 'count'}
+                  onChange={(event) => updateView({ chartOp: event.target.value === 'sum' ? 'sum' : 'count' })}
+                >
+                  <option value="count">{t('dbChartCount')}</option>
+                  <option value="sum">{t('dbChartSum')}</option>
+                </select>
+              </label>
+              <label>
+                {t('dbValueProp')}
+                <select
+                  value={activeView.valueProp ?? ''}
+                  onChange={(event) => updateView({ valueProp: event.target.value || undefined })}
+                >
+                  <option value="">{t('dbEmpty')}</option>
+                  {schema
+                    .filter((def) => def.type === 'number')
+                    .map((def) => (
+                      <option key={def.id} value={def.id}>
+                        {def.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {editingProps ? <PropertyEditor schema={schema} onChange={setSchema} /> : null}
       {activeView ? (
         <FilterBar schema={schema} filters={activeView.filters ?? []} onChange={setFilters} onAskAi={() => setAiScope('filters')} />
       ) : null}
-      {activeView?.type === 'board' ? (
+      {type === 'board' ? (
         <BoardView
           rows={filtered}
+          schema={schema}
           groupProp={groupProp}
           onOpenRow={onOpenRow}
           onDelete={onDeleteRow}
           onMove={(id, value) => onPropChange(id, groupProp?.id ?? 'status', value)}
         />
+      ) : type === 'gallery' ? (
+        <GalleryView rows={filtered} schema={schema} onOpenRow={onOpenRow} onDelete={onDeleteRow} />
+      ) : type === 'list' ? (
+        <ListView rows={filtered} schema={schema} onOpenRow={onOpenRow} onDelete={onDeleteRow} />
+      ) : type === 'calendar' ? (
+        <CalendarView rows={filtered} dateProp={dateProp} onOpenRow={onOpenRow} />
+      ) : type === 'timeline' ? (
+        <TimelineView rows={filtered} dateProp={dateProp} onOpenRow={onOpenRow} onDelete={onDeleteRow} />
+      ) : isChartView(type) && activeView ? (
+        <ChartView rows={filtered} schema={schema} view={activeView} />
       ) : (
         <TableView
           rows={filtered}

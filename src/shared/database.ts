@@ -1,4 +1,4 @@
-export type PropType = 'text' | 'number' | 'select' | 'multiSelect' | 'checkbox' | 'date'
+export type PropType = 'text' | 'number' | 'select' | 'multiSelect' | 'checkbox' | 'date' | 'image'
 
 export interface PropDef {
   id: string
@@ -15,12 +15,48 @@ export interface DbFilter {
   value?: string
 }
 
+export const DB_VIEW_TYPES = [
+  'table',
+  'board',
+  'gallery',
+  'list',
+  'calendar',
+  'timeline',
+  'bar',
+  'line',
+  'donut',
+  'number',
+] as const
+
+export type DbViewType = (typeof DB_VIEW_TYPES)[number]
+
+export type ChartOp = 'count' | 'sum'
+
+export const CHART_VIEW_TYPES = ['bar', 'line', 'donut', 'number'] as const
+
+export function isChartView(type: DbViewType): boolean {
+  return (CHART_VIEW_TYPES as readonly string[]).includes(type)
+}
+
+export function isDbViewType(value: unknown): value is DbViewType {
+  return typeof value === 'string' && (DB_VIEW_TYPES as readonly string[]).includes(value)
+}
+
 export interface DbView {
   id: string
   name: string
-  type: 'table' | 'board'
+  type: DbViewType
   groupBy?: string
+  dateProp?: string
+  valueProp?: string
+  chartOp?: ChartOp
   filters: DbFilter[]
+}
+
+export interface ChartBucket {
+  key: string
+  label: string
+  value: number
 }
 
 export const STATUS_PROP_ID = 'status'
@@ -60,7 +96,7 @@ export function cleanPropDefs(raw: unknown): PropDef[] {
       .slice(0, 40)
     const type = String(row.type ?? '') as PropType
     if (!id || !name) continue
-    if (!['text', 'number', 'select', 'multiSelect', 'checkbox', 'date'].includes(type)) continue
+    if (!['text', 'number', 'select', 'multiSelect', 'checkbox', 'date', 'image'].includes(type)) continue
     const def: PropDef = { id, name, type }
     if (type === 'select' || type === 'multiSelect') {
       const options = Array.isArray(row.options)
@@ -90,15 +126,64 @@ export function cleanDbViews(raw: unknown): DbView[] {
       .replace(/[\r\n{}]/g, ' ')
       .trim()
       .slice(0, 40)
-    const type = row.type === 'board' ? 'board' : row.type === 'table' ? 'table' : null
-    if (!id || !name || !type) continue
+    if (!id || !name || !isDbViewType(row.type)) continue
     const filters = cleanFilters(row.filters)
-    const view: DbView = { id, name, type, filters }
+    const view: DbView = { id, name, type: row.type, filters }
     if (typeof row.groupBy === 'string' && row.groupBy.trim()) view.groupBy = row.groupBy.trim().slice(0, 40)
+    if (typeof row.dateProp === 'string' && row.dateProp.trim()) view.dateProp = row.dateProp.trim().slice(0, 40)
+    if (typeof row.valueProp === 'string' && row.valueProp.trim()) view.valueProp = row.valueProp.trim().slice(0, 40)
+    if (row.chartOp === 'sum' || row.chartOp === 'count') view.chartOp = row.chartOp
     out.push(view)
-    if (out.length >= 12) break
+    if (out.length >= 16) break
   }
   return out
+}
+
+export function parsePropDate(value: unknown): string | null {
+  if (value == null || value === '') return null
+  const text = String(value).trim().slice(0, 32)
+  if (!/^\d{4}-\d{2}-\d{2}/.test(text)) return null
+  const day = text.slice(0, 10)
+  const time = Date.parse(`${day}T12:00:00`)
+  return Number.isFinite(time) ? day : null
+}
+
+export function aggregateChartBuckets(
+  rows: Array<{ props?: Record<string, unknown> }>,
+  schema: PropDef[],
+  view: Pick<DbView, 'groupBy' | 'valueProp' | 'chartOp'>,
+): ChartBucket[] {
+  const group =
+    schema.find((def) => def.id === view.groupBy && (def.type === 'select' || def.type === 'text')) ??
+    schema.find((def) => def.type === 'select')
+  const valueDef = schema.find((def) => def.id === view.valueProp && def.type === 'number')
+  const op = view.chartOp === 'sum' && valueDef ? 'sum' : 'count'
+  const totals = new Map<string, number>()
+  const labels = new Map<string, string>()
+  if (group?.type === 'select') {
+    for (const option of group.options ?? []) {
+      totals.set(option, 0)
+      labels.set(option, option)
+    }
+  }
+  for (const row of rows) {
+    const raw = group ? row.props?.[group.id] : undefined
+    const key = raw == null || raw === '' ? '' : String(raw)
+    const label = key || '—'
+    if (!labels.has(key)) labels.set(key, label)
+    const prev = totals.get(key) ?? 0
+    if (op === 'sum' && valueDef) {
+      const n = Number(row.props?.[valueDef.id])
+      totals.set(key, prev + (Number.isFinite(n) ? n : 0))
+    } else {
+      totals.set(key, prev + 1)
+    }
+  }
+  return [...totals.entries()].map(([key, value]) => ({
+    key,
+    label: labels.get(key) ?? (key || '—'),
+    value,
+  }))
 }
 
 export function cleanFilters(raw: unknown): DbFilter[] {
@@ -139,6 +224,16 @@ export function cleanPropValue(def: PropDef, value: unknown): unknown {
     case 'text':
     case 'date':
       return String(value).slice(0, 500)
+    case 'image': {
+      const text = String(value)
+        .trim()
+        .replace(/\\/g, '/')
+        .slice(0, 500)
+      if (!text || text.includes('..')) return undefined
+      if (/^(assets\/|https?:\/\/|zention-asset:)/i.test(text)) return text
+      if (text.includes('/')) return text
+      return undefined
+    }
     case 'number': {
       const n = typeof value === 'number' ? value : Number(String(value).trim())
       return Number.isFinite(n) ? n : undefined
@@ -189,7 +284,14 @@ export function syncedDatabaseTable(
   const body = rows.map((row) =>
     line([
       `${row.title} <!-- zention-row:${row.id} -->`,
-      ...schema.map((def) => propDisplay(row.props?.[def.id])),
+      ...schema.map((def) => {
+        const raw = row.props?.[def.id]
+        if (def.type === 'image' && raw) {
+          const src = String(raw).trim()
+          return src ? `![](${src})` : ''
+        }
+        return propDisplay(raw)
+      }),
     ]),
   )
   return `${SYNCED_DB_START}\n${line(headers)}\n${rule}\n${body.join('\n')}${body.length ? '\n' : ''}${SYNCED_DB_END}\n\n`

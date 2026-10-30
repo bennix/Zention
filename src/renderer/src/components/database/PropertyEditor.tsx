@@ -1,7 +1,7 @@
 import type { PropDef, PropType } from '../../../../shared/database'
 import { useI18n } from '../../i18n'
 
-const TYPES: PropType[] = ['text', 'number', 'select', 'multiSelect', 'checkbox', 'date']
+const TYPES: PropType[] = ['text', 'number', 'select', 'multiSelect', 'checkbox', 'date', 'image']
 
 export function PropertyEditor({
   schema,
@@ -26,6 +26,8 @@ export function PropertyEditor({
         return t('dbTypeCheck')
       case 'date':
         return t('dbTypeDate')
+      case 'image':
+        return t('dbTypeImage')
       default:
         return type
     }

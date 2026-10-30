@@ -23,6 +23,7 @@ const api: ZentionApi = {
   renamePage: (id, title) => ipcRenderer.invoke('pages:rename', id, title),
   deletePage: (id) => ipcRenderer.invoke('pages:delete', id),
   pickImage: () => ipcRenderer.invoke('asset:pick'),
+  pickMedia: (kind = 'any') => ipcRenderer.invoke('asset:pick-media', kind),
   saveImage: (payload) => ipcRenderer.invoke('asset:save', payload),
   aiComplete: (input, onDelta, onReset) => {
     if (!onDelta) return ipcRenderer.invoke('ai:complete', input)

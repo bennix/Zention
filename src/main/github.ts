@@ -9,6 +9,7 @@ import {
   readSyncState,
   replaceWorkspace,
   saveNamedAsset,
+  saveNamedMedia,
   workspaceRoot,
   writePageFromRemote,
   writeSyncState,
@@ -180,10 +181,11 @@ function parseRemotePage(raw: string): { id: string | null; title: string; body:
   const text = parsed.rest
   const heading = text.match(/^#\s+(.+)\r?\n+/)
   const title = heading?.[1]?.trim() || '未命名'
-  const body = stripSyncedDatabaseTable(heading ? text.slice(heading[0].length) : text).replace(
-    /\]\((?:\.\/|(?:\.\.\/)+)?assets\//g,
-    '](assets/',
-  )
+  const body = stripSyncedDatabaseTable(heading ? text.slice(heading[0].length) : text)
+    .replace(/\]\((?:\.\/|(?:\.\.\/)+)?assets\//g, '](assets/')
+    .replace(/\]\((?:\.\/|(?:\.\.\/)+)?media\//g, '](media/')
+    .replace(/((?:src|href)=["'])(?:\.\/|(?:\.\.\/)+)?assets\//gi, '$1assets/')
+    .replace(/((?:src|href)=["'])(?:\.\/|(?:\.\.\/)+)?media\//gi, '$1media/')
   return { id: parsed.id, title, body, organize: parsed.organize }
 }
 
@@ -255,13 +257,19 @@ async function pullRemote(
   for (const item of files) {
     const rel = item.path!
     done += 1
-    if (rel === '目录.md' || (!rel.startsWith('pages/') && !rel.startsWith('assets/'))) continue
+    if (rel === '目录.md' || (!rel.startsWith('pages/') && !rel.startsWith('assets/') && !rel.startsWith('media/'))) continue
     say(onProgress, 28 + (done / Math.max(files.length, 1)) * 24, 'syncFetchFile', { done, total: files.length, name: rel })
     const bytes = await blobBytes(token, owner, repo, item.sha!)
     if (rel.startsWith('assets/')) {
       const name = rel.slice('assets/'.length)
       if (name.includes('/') || name.startsWith('.')) continue
       await mergeAsset(name, bytes, state?.assets[name])
+      continue
+    }
+    if (rel.startsWith('media/')) {
+      const name = rel.slice('media/'.length)
+      if (name.includes('/') || name.startsWith('.')) continue
+      await mergeMedia(name, bytes, state?.assets[`media/${name}`])
       continue
     }
     if (!rel.endsWith('.md')) continue
@@ -352,7 +360,20 @@ async function pullRemote(
 const PAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 async function mergeAsset(name: string, remote: Buffer, last: string | undefined): Promise<void> {
-  const abs = path.join(workspaceRoot(), 'assets', name)
+  await mergeBinaryFile('assets', name, remote, last)
+}
+
+async function mergeMedia(name: string, remote: Buffer, last: string | undefined): Promise<void> {
+  await mergeBinaryFile('media', name, remote, last)
+}
+
+async function mergeBinaryFile(
+  folder: 'assets' | 'media',
+  name: string,
+  remote: Buffer,
+  last: string | undefined,
+): Promise<void> {
+  const abs = path.join(workspaceRoot(), folder, name)
   let local: Buffer | null = null
   try {
     local = await fs.readFile(abs)
@@ -360,20 +381,24 @@ async function mergeAsset(name: string, remote: Buffer, last: string | undefined
     local = null
   }
   const remoteHash = createHash('sha256').update(remote).digest('hex')
+  const save =
+    folder === 'media'
+      ? (file: string, bytes: Buffer) => saveNamedMedia(file, bytes)
+      : (file: string, bytes: Buffer) => saveNamedAsset(file, bytes)
   if (!local) {
-    await saveNamedAsset(name, remote)
+    await save(name, remote)
     return
   }
   if (local.equals(remote)) return
   const localHash = createHash('sha256').update(local).digest('hex')
   if (last === localHash && last !== remoteHash) {
-    await saveNamedAsset(name, remote)
+    await save(name, remote)
     return
   }
   if (!last || (last !== localHash && last !== remoteHash)) {
     const ext = path.extname(name)
     const stem = path.basename(name, ext)
-    await saveNamedAsset(`${stem}.remote${ext || '.png'}`, remote).catch(() => undefined)
+    await save(`${stem}.remote${ext || (folder === 'media' ? '.mp4' : '.png')}`, remote).catch(() => undefined)
   }
 }
 
@@ -390,19 +415,32 @@ async function overwriteLocal(
   const entries = (tree.tree ?? []) as Array<{ path?: string; type?: string; sha?: string }>
   const files = entries.filter((item) => item.type === 'blob' && item.path && item.sha)
   const pendingPages: Array<{ rel: string; raw: string }> = []
-  const assets: Array<{ name: string; bytes: Buffer }> = []
+  const assets: Array<{ name: string; bytes: Buffer; folder?: 'assets' | 'media' }> = []
   let done = 0
   for (const item of files) {
     const rel = item.path!
     done += 1
-    if (rel === '目录.md' || (!rel.startsWith('pages/') && !rel.startsWith('assets/'))) continue
+    if (rel === '目录.md' || (!rel.startsWith('pages/') && !rel.startsWith('assets/') && !rel.startsWith('media/'))) continue
     say(onProgress, 28 + (done / Math.max(files.length, 1)) * 24, 'syncFetchFile', { done, total: files.length, name: rel })
     const bytes = await blobBytes(token, owner, repo, item.sha!)
     if (rel.startsWith('assets/')) {
       const name = rel.slice('assets/'.length)
       const ext = path.extname(name).slice(1).toLowerCase()
       if (name.includes('/') || name.startsWith('.') || !['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) continue
-      assets.push({ name, bytes })
+      assets.push({ name, bytes, folder: 'assets' })
+      continue
+    }
+    if (rel.startsWith('media/')) {
+      const name = rel.slice('media/'.length)
+      const ext = path.extname(name).slice(1).toLowerCase()
+      if (
+        name.includes('/') ||
+        name.startsWith('.') ||
+        !['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'mp4', 'webm', 'mov', 'm4v'].includes(ext)
+      ) {
+        continue
+      }
+      assets.push({ name, bytes, folder: 'media' })
       continue
     }
     if (rel.endsWith('.md')) pendingPages.push({ rel, raw: bytes.toString('utf8') })
@@ -426,7 +464,10 @@ async function overwriteLocal(
   const snapshotPages: Record<string, string> = {}
   for (const page of local) snapshotPages[page.id] = page.digest
   const snapshotAssets: Record<string, string> = {}
-  for (const asset of assets) snapshotAssets[asset.name] = createHash('sha256').update(asset.bytes).digest('hex')
+  for (const asset of assets) {
+    const key = asset.folder === 'media' ? `media/${asset.name}` : asset.name
+    snapshotAssets[key] = createHash('sha256').update(asset.bytes).digest('hex')
+  }
   await writeSyncState({ commit: parent, pages: snapshotPages, assets: snapshotAssets })
   say(onProgress, 100, 'syncDoneAll', { count: pages.length })
   return { pageCount: pages.length }
@@ -543,7 +584,11 @@ export async function syncWorkspace(
   for (const page of pages) snapshotPages[page.id] = page.digest
   const snapshotAssets: Record<string, string> = {}
   for (const file of files) {
-    if (file.path.startsWith('assets/')) snapshotAssets[file.path.slice('assets/'.length)] = createHash('sha256').update(file.bytes).digest('hex')
+    if (file.path.startsWith('assets/')) {
+      snapshotAssets[file.path.slice('assets/'.length)] = createHash('sha256').update(file.bytes).digest('hex')
+    } else if (file.path.startsWith('media/')) {
+      snapshotAssets[file.path] = createHash('sha256').update(file.bytes).digest('hex')
+    }
   }
   await writeSyncState({ commit: commit.sha as string, pages: snapshotPages, assets: snapshotAssets })
   say(onProgress, 100, 'syncDoneAll', { count: pageCount })

@@ -1,4 +1,5 @@
 import type { PropDef } from '../../../../shared/database'
+import { displayImageSrc } from '../../editor/image'
 import { useI18n } from '../../i18n'
 
 export function PropertyCell({
@@ -11,6 +12,32 @@ export function PropertyCell({
   onChange: (value: unknown) => void
 }) {
   const { t } = useI18n()
+  if (def.type === 'image') {
+    const src = typeof value === 'string' ? value.trim() : ''
+    return (
+      <div className="db-image-cell">
+        {src ? <img className="db-image-thumb" src={displayImageSrc(src)} alt="" /> : <span className="muted">{t('dbNoImage')}</span>}
+        <div className="db-image-actions">
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => {
+              void window.zention.pickImage().then((result) => {
+                if (result.ok && result.path) onChange(result.path)
+              })
+            }}
+          >
+            {t('dbPickImage')}
+          </button>
+          {src ? (
+            <button type="button" className="quiet" onClick={() => onChange(undefined)}>
+              {t('dbClearImage')}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
   if (def.type === 'checkbox') {
     return (
       <input

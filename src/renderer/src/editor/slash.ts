@@ -227,9 +227,12 @@ function blockChain(editor: Editor, range: Range) {
 export interface SlashActions {
   aiContinue: (editor: Editor, range: Range) => void
   aiInstruct: (editor: Editor, range: Range) => void
+  aiTable: (editor: Editor, range: Range) => void
   imageAbove: (editor: Editor, range: Range) => void
   imageBelow: (editor: Editor, range: Range) => void
   pickImage: (editor: Editor, range: Range) => void
+  pickAudio: (editor: Editor, range: Range) => void
+  pickVideo: (editor: Editor, range: Range) => void
   networkImage: (editor: Editor, range: Range) => void
   recognizeFormula: (editor: Editor, range: Range) => void
 }
@@ -272,6 +275,60 @@ export function buildSlashItems(actions: SlashActions): SlashItem[] {
       keywords: ['grid', '表'],
       run: (e, r) => void blockChain(e, r).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
     },
+    {
+      id: 'ai-table',
+      label: t('slashAiTable'),
+      keywords: ['ai', 'table', '表格', 'grid'],
+      run: (e, r) => actions.aiTable(e, r),
+    },
+    {
+      id: 'toc',
+      label: t('slashToc'),
+      keywords: ['toc', 'contents', '目录', '大纲'],
+      run: (e, r) => void chain(e, r).insertContent({ type: 'tableOfContents' }).run(),
+    },
+    {
+      id: 'columns-2',
+      label: t('slashColumns2'),
+      keywords: ['columns', '分栏', '两栏', 'layout'],
+      run: (e, r) => void chain(e, r).insertColumns(2).run(),
+    },
+    {
+      id: 'columns-3',
+      label: t('slashColumns3'),
+      keywords: ['columns', '分栏', '三栏', 'layout'],
+      run: (e, r) => void chain(e, r).insertColumns(3).run(),
+    },
+    {
+      id: 'toggle-h1',
+      label: t('slashToggleH1'),
+      keywords: ['toggle', '折叠', 'heading'],
+      run: (e, r) => void chain(e, r).insertToggleBlock(1).run(),
+    },
+    {
+      id: 'toggle-h2',
+      label: t('slashToggleH2'),
+      keywords: ['toggle', '折叠', 'heading'],
+      run: (e, r) => void chain(e, r).insertToggleBlock(2).run(),
+    },
+    {
+      id: 'toggle-h3',
+      label: t('slashToggleH3'),
+      keywords: ['toggle', '折叠', 'heading'],
+      run: (e, r) => void chain(e, r).insertToggleBlock(3).run(),
+    },
+    {
+      id: 'tabs',
+      label: t('slashTabs'),
+      keywords: ['tabs', '标签'],
+      run: (e, r) => void chain(e, r).insertTabs().run(),
+    },
+    {
+      id: 'button',
+      label: t('slashButton'),
+      keywords: ['button', '按钮'],
+      run: (e, r) => void chain(e, r).insertActionButton().run(),
+    },
     { id: 'hr', label: t('slashHr'), keywords: ['divider', 'hr'], run: (e, r) => void blockChain(e, r).setHorizontalRule().run() },
     { id: 'page-link', label: t('slashPageLink'), keywords: ['link', 'wiki', '链接', '笔记', '[['], run: (e, r) => void chain(e, r).insertContent('[[').run() },
     {
@@ -279,6 +336,18 @@ export function buildSlashItems(actions: SlashActions): SlashItem[] {
       label: t('slashImage'),
       keywords: ['image', 'picture', '图片', '文件'],
       run: (e, r) => actions.pickImage(e, r),
+    },
+    {
+      id: 'audio-file',
+      label: t('slashAudio'),
+      keywords: ['audio', 'mp3', '音乐', '音频', 'sound'],
+      run: (e, r) => actions.pickAudio(e, r),
+    },
+    {
+      id: 'video-file',
+      label: t('slashVideo'),
+      keywords: ['video', 'mp4', '视频', 'movie'],
+      run: (e, r) => actions.pickVideo(e, r),
     },
     {
       id: 'image-url',

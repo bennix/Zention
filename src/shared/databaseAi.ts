@@ -141,13 +141,13 @@ export function systemFor(mode: DbAiMode): string {
   ],
   "rows": [{ "title": "示例", "props": { "status": "待办" } }]
 }
-type 只能是 text、number、select、multiSelect、checkbox、date。
-schema 3 到 8 个属性。id 用短英文。select 和 multiSelect 必须带 options。rows 最多 8 条，可以是空数组。`
+type 只能是 text、number、select、multiSelect、checkbox、date、image。
+schema 3 到 8 个属性。id 用短英文。select 和 multiSelect 必须带 options。image 不要写 options。rows 最多 8 条，可以是空数组；image 属性值可先留空。`
   }
   if (mode === 'schema') {
     return `${JSON_ONLY}
 { "schema": [{ "id": "status", "name": "状态", "type": "select", "options": ["待办", "进行中", "完成"] }], "views": [{ "id": "table", "name": "表格", "type": "table", "filters": [] }] }
-保留上下文里已有属性的 id，除非指令明确要求删除。type 只能是 text、number、select、multiSelect、checkbox、date。views 可选；看板的 groupBy 必须是 schema 里的 select 属性 id。`
+保留上下文里已有属性的 id，除非指令明确要求删除。type 只能是 text、number、select、multiSelect、checkbox、date、image。views 可选；看板的 groupBy 必须是 schema 里的 select 属性 id。`
   }
   if (mode === 'filters') {
     return `${JSON_ONLY}
@@ -221,12 +221,30 @@ function cleanTitle(value: unknown, fallback = ''): string {
 
 function ensureViews(views: DbView[], schema: PropDef[]): DbView[] {
   const select = schema.find((item) => item.type === 'select')
+  const date = schema.find((item) => item.type === 'date')
+  const number = schema.find((item) => item.type === 'number')
   let next = views.length ? views : defaultDatabaseViews()
   next = next.map((view) => {
-    if (view.type !== 'board') return view
-    const groupBy = schema.some((item) => item.id === view.groupBy && item.type === 'select') ? view.groupBy : select?.id
-    if (!groupBy) return { ...view, type: 'table', groupBy: undefined }
-    return { ...view, groupBy }
+    if (view.type === 'board' || view.type === 'bar' || view.type === 'line' || view.type === 'donut' || view.type === 'number') {
+      const groupBy =
+        schema.some((item) => item.id === view.groupBy && (item.type === 'select' || item.type === 'text'))
+          ? view.groupBy
+          : select?.id
+      if (view.type === 'board' && !groupBy) return { ...view, type: 'table' as const, groupBy: undefined }
+      const patched = { ...view, groupBy }
+      if (view.type !== 'board') {
+        patched.chartOp = view.chartOp === 'sum' ? 'sum' : 'count'
+        if (number && !schema.some((item) => item.id === view.valueProp && item.type === 'number')) {
+          patched.valueProp = number.id
+        }
+      }
+      return patched
+    }
+    if (view.type === 'calendar' || view.type === 'timeline') {
+      const dateProp = schema.some((item) => item.id === view.dateProp && item.type === 'date') ? view.dateProp : date?.id
+      return { ...view, dateProp }
+    }
+    return view
   })
   if (!next.some((view) => view.type === 'table')) {
     next = [{ id: 'table', name: '表格', type: 'table', filters: [] }, ...next]

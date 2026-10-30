@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor, Range } from '@tiptap/core'
 import type { PageMeta } from '../../../shared/types'
-import { pageIdFromHref } from '../../../shared/pages'
+import { pageHref, pageIdFromHref } from '../../../shared/pages'
 import { beginAiHistory, tagAiHistory } from '../editor/aiHistory'
 import { citedContext } from '../editor/citations'
 import { instructionFor, rewritePrompt } from '../editor/rewrite'
@@ -29,11 +29,16 @@ const REWRITE_SYSTEM =
 const EQUATION_SYSTEM =
   '你是 LaTeX 公式助手。只输出公式源码，不要解释，不要 Markdown，不要代码围栏，不要用 $ 或 $$ 包裹。图片里有多个公式时，按阅读顺序用空行隔开。'
 
+const TABLE_SYSTEM =
+  '你是 Markdown 表格助手。只输出一个 GitHub Flavored Markdown 表格。不要解释，不要代码围栏，不要前后多余文字。第一行是表头，第二行是对齐分隔行（用 | --- |），后面是数据行。通常 3 到 6 列、3 到 8 行数据。单元格里不要换行。'
+
 type Dialog =
   | { kind: 'insert'; instruction: string; images: PromptImage[] }
   | { kind: 'replace'; from: number; to: number; text: string; instruction: string; images: PromptImage[] }
+  | { kind: 'table'; instruction: string }
   | { kind: 'image'; place: 'above' | 'below'; pos: number; prompt: string; aspect: string }
   | { kind: 'url' }
+  | { kind: 'button'; pos: number; label: string; href: string }
   | { kind: 'recognize'; at: number; images: PromptImage[] }
   | {
       kind: 'equation'
@@ -43,6 +48,23 @@ type Dialog =
       instruction: string
       images: PromptImage[]
     }
+
+function extractMarkdownTable(raw: string): string | null {
+  let text = raw.trim()
+  const fence = text.match(/```(?:markdown|md)?\s*([\s\S]*?)```/i)
+  if (fence?.[1]) text = fence[1].trim()
+  const lines = text.split(/\r?\n/)
+  const start = lines.findIndex((line) => /^\s*\|/.test(line))
+  if (start < 0) return null
+  const table: string[] = []
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    if (!/^\s*\|/.test(line)) break
+    table.push(line.trim())
+  }
+  if (table.length < 2 || !table[1]?.includes('---')) return null
+  return table.join('\n')
+}
 
 function emptyEquation(pos: number, kindName: 'inline' | 'block', latex: string): Dialog {
   return { kind: 'equation', pos, kindName, latex, instruction: '', images: [] }
@@ -426,6 +448,46 @@ export function EditorPane({
     [streamIntoPage],
   )
 
+  const insertAiTable = useCallback(
+    async (instruction: string) => {
+      const ask = instruction.trim()
+      if (!ask) return
+      setBusy(t('tableAiBusy'))
+      try {
+        const cited = await citedContext(ask)
+        const response = await window.zention.aiComplete({
+          system: TABLE_SYSTEM,
+          user: `指令：${ask}${cited}`,
+        })
+        if (!response.ok) {
+          fail(response.error)
+          return
+        }
+        const table = extractMarkdownTable(response.content)
+        if (!table) {
+          onToast(t('tableAiBad'))
+          return
+        }
+        const editor = editorRef.current
+        if (!editor) return
+        const composition = beginAiHistory()
+        const inserted = editor
+          .chain()
+          .focus()
+          .command(({ tr }) => {
+            tagAiHistory(tr, composition, true)
+            return true
+          })
+          .insertContent(`${table}\n\n`, { contentType: 'markdown' })
+          .run()
+        if (!inserted) onToast(t('tableAiBad'))
+      } finally {
+        setBusy('')
+      }
+    },
+    [fail, onToast, t],
+  )
+
   const replaceRange = useCallback(
     async (from: number, to: number, text: string, instruction: string, images: PromptImage[] = []) => {
       const ask = instruction.trim() || '请根据附上的图片改写。'
@@ -478,6 +540,10 @@ export function EditorPane({
       editor.chain().focus().deleteRange(range).run()
       setDialog({ kind: 'insert', instruction: '', images: [] })
     },
+    aiTable(editor, range) {
+      editor.chain().focus().deleteRange(range).run()
+      setDialog({ kind: 'table', instruction: '' })
+    },
     imageAbove(editor, range) {
       openImage(editor, range, 'above')
     },
@@ -489,6 +555,26 @@ export function EditorPane({
       void window.zention.pickImage().then((result) => {
         if (!result.ok) onToast(result.error)
         else if (result.path) editorRef.current?.chain().focus().setImage({ src: result.path }).run()
+      })
+    },
+    pickAudio(editor, range) {
+      editor.chain().focus().deleteRange(range).run()
+      void window.zention.pickMedia('audio').then((result) => {
+        if (!result.ok) onToast(result.error)
+        else if (result.path) {
+          const ok = editorRef.current?.chain().focus().insertMediaBlock({ src: result.path, kind: 'audio' }).run()
+          if (!ok) onToast(t('mediaInsertFail'))
+        }
+      })
+    },
+    pickVideo(editor, range) {
+      editor.chain().focus().deleteRange(range).run()
+      void window.zention.pickMedia('video').then((result) => {
+        if (!result.ok) onToast(result.error)
+        else if (result.path) {
+          const ok = editorRef.current?.chain().focus().insertMediaBlock({ src: result.path, kind: 'video' }).run()
+          if (!ok) onToast(t('mediaInsertFail'))
+        }
       })
     },
     networkImage(editor, range) {
@@ -603,15 +689,27 @@ export function EditorPane({
       addDialogImages([detail.file])
     }
     const onToastEvent = (event: Event) => onToast(String((event as CustomEvent).detail ?? ''))
+    const onEditButton = (event: Event) => {
+      const detail = (event as CustomEvent<{ pos: number; label: string; href: string }>).detail
+      setDialog({ kind: 'button', pos: detail.pos, label: detail.label, href: detail.href })
+    }
+    const onOpenLinkedPage = (event: Event) => {
+      const id = String((event as CustomEvent).detail ?? '')
+      if (id) openPageRef.current?.(id)
+    }
     window.addEventListener('zention:selection-slash', onSelection)
     window.addEventListener('zention:edit-equation', onEquation)
     window.addEventListener('zention:equation-image', onEquationImage)
     window.addEventListener('zention:toast', onToastEvent)
+    window.addEventListener('zention:edit-button', onEditButton)
+    window.addEventListener('zention:open-page', onOpenLinkedPage)
     return () => {
       window.removeEventListener('zention:selection-slash', onSelection)
       window.removeEventListener('zention:edit-equation', onEquation)
       window.removeEventListener('zention:equation-image', onEquationImage)
       window.removeEventListener('zention:toast', onToastEvent)
+      window.removeEventListener('zention:edit-button', onEditButton)
+      window.removeEventListener('zention:open-page', onOpenLinkedPage)
     }
   }, [addDialogImages, onToast])
 
@@ -678,6 +776,25 @@ export function EditorPane({
               const images = current.images
               closeDialog()
               void replaceRange(current.from, current.to, current.text, current.instruction, images)
+            } else if (current.kind === 'table') {
+              const instruction = current.instruction
+              closeDialog()
+              void insertAiTable(instruction)
+            } else if (current.kind === 'button') {
+              const pos = current.pos
+              const label = current.label.trim().slice(0, 40) || t('buttonLabel')
+              const href = current.href.trim().slice(0, 500)
+              setDialog(null)
+              editorRef.current
+                ?.chain()
+                .focus()
+                .command(({ tr }) => {
+                  const target = tr.doc.nodeAt(pos)
+                  if (!target || target.type.name !== 'actionButton') return false
+                  tr.setNodeMarkup(pos, undefined, { ...target.attrs, label, href })
+                  return true
+                })
+                .run()
             } else if (current.kind === 'image') {
               setDialog(null)
               void generateImage(current.pos, current.place, current.prompt, current.aspect)
@@ -730,10 +847,14 @@ function DialogView({
           ? t('editFormula')
           : dialog.kind === 'recognize'
             ? t('recognizeTitle')
-            : t('aiPrompt')
+            : dialog.kind === 'table'
+              ? t('tableAiTitle')
+              : dialog.kind === 'button'
+                ? t('buttonLinkTitle')
+                : t('aiPrompt')
   const sendText = (() => {
     if (busy) return busy
-    if (dialog.kind === 'url') return t('insert')
+    if (dialog.kind === 'url' || dialog.kind === 'button') return t('insert')
     if ((dialog.kind === 'equation' || dialog.kind === 'recognize') && dialog.images.length) return t('recognizeWrite')
     return t('send')
   })()
@@ -779,6 +900,19 @@ function DialogView({
             />
           </>
         ) : null}
+        {dialog.kind === 'table' ? (
+          <>
+            <p className="hint">{t('tableAiHint')}</p>
+            <MentionField
+              autoFocus
+              rows={5}
+              pages={pages}
+              placeholder={t('promptPh')}
+              value={dialog.instruction}
+              onChange={(instruction) => onChange({ ...dialog, instruction })}
+            />
+          </>
+        ) : null}
         {dialog.kind === 'image' ? (
           <>
             <textarea rows={6} value={dialog.prompt} onChange={(event) => onChange({ ...dialog, prompt: event.target.value })} />
@@ -794,6 +928,38 @@ function DialogView({
           </>
         ) : null}
         {dialog.kind === 'url' ? <input id="network-image-url" autoFocus placeholder="https://" /> : null}
+        {dialog.kind === 'button' ? (
+          <>
+            <label>
+              {t('buttonLabel')}
+              <input
+                autoFocus
+                value={dialog.label}
+                onChange={(event) => onChange({ ...dialog, label: event.target.value })}
+              />
+            </label>
+            <label>
+              {t('buttonLink')}
+              <input
+                value={dialog.href}
+                placeholder={t('buttonLinkPh')}
+                onChange={(event) => onChange({ ...dialog, href: event.target.value })}
+              />
+            </label>
+            <p className="hint">{t('buttonPickPage')}</p>
+            <div className="zention-button-pages">
+              {pages.slice(0, 40).map((page) => (
+                <button
+                  key={page.id}
+                  type="button"
+                  onClick={() => onChange({ ...dialog, href: pageHref(page.id) })}
+                >
+                  {page.title.trim() || t('untitled')}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
         {dialog.kind === 'equation' ? (
           <>
             <label>
@@ -841,6 +1007,8 @@ function DialogView({
           disabled={
             !!busy ||
             ((dialog.kind === 'insert' || dialog.kind === 'replace') && !dialog.instruction.trim() && dialog.images.length === 0) ||
+            (dialog.kind === 'table' && !dialog.instruction.trim()) ||
+            (dialog.kind === 'button' && !dialog.label.trim()) ||
             (dialog.kind === 'image' && !dialog.prompt.trim()) ||
             (dialog.kind === 'equation' && !dialog.latex.trim() && !dialog.instruction.trim() && dialog.images.length === 0) ||
             (dialog.kind === 'recognize' && dialog.images.length === 0)

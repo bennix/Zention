@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Zention — 本地笔记，写完再同步</title>
-  <meta name="description" content="Zention 是本地 Markdown 笔记。支持公式、代码、表格、数据库和 AI。笔记留在本机，需要对齐时再选择方向和 GitHub 同步。" />
+  <meta name="description" content="Zention 是本地 Markdown 笔记。支持公式、代码、表格、多视图数据库、音视频、布局块和 AI。笔记留在本机，需要对齐时再选择方向和 GitHub 同步。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='48' y='48' width='928' height='928' rx='212' fill='%230F7B6C'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -75,6 +75,7 @@
     .note { margin-top: 22px; color: var(--muted); font-size: 14px; line-height: 1.6; }
     .features { margin-top: 72px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 36px; }
     .features h2 { grid-column: 1 / -1; margin: 0 0 8px; font-size: 28px; letter-spacing: -0.03em; }
+    .features h2.sub { margin-top: 28px; font-size: 22px; color: var(--teal); }
     .features article { padding-top: 14px; border-top: 1px solid rgba(36, 49, 45, 0.16); }
     .features h3 { margin: 0 0 6px; font-size: 16px; }
     .features p { margin: 0; color: var(--muted); line-height: 1.75; }
@@ -109,72 +110,102 @@
         <div class="formula">E = mc²</div>
       </section>
       <section>
-        <p class="kicker">本地笔记 · 0.1.14</p>
+        <p class="kicker">本地笔记 · 0.1.15</p>
         <h1>一页纸，<br>写到可以同步。</h1>
-        <p class="lede">公式、图片、代码、表格和数据库先留在你的电脑上。表格可以加减行列、合并单元格。数据库的行仍是一篇笔记。建库、改属性和筛选都可以用现成的指令模板，让 AI 先起草。要对齐时，先选哪一边覆盖哪一边，再和 GitHub 同步。</p>
+        <p class="lede">公式、图片、音视频、表格、多视图数据库和布局块先留在你的电脑上。斜杠可让 AI 建表；数据库可带封面图；按钮能跳到其他笔记。要对齐时，先选哪一边覆盖哪一边，再和 GitHub 同步——图片进 assets，音视频进 media。</p>
         <div class="downloads">
-          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-mac.dmg">macOS<small>已公证 DMG</small></a>
-          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-win.exe">Windows<small>64 位安装包</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-amd64.deb">Linux DEB<small>x64</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-arm64.deb">Linux DEB<small>arm64</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-x86_64.rpm">Linux RPM<small>x64</small></a>
-          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.14-linux-aarch64.rpm">Linux RPM<small>arm64</small></a>
+          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.15-mac.dmg">macOS<small>已公证 DMG</small></a>
+          <a href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.15-win.exe">Windows<small>64 位安装包</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.15-linux-amd64.deb">Linux DEB<small>x64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.15-linux-arm64.deb">Linux DEB<small>arm64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.15-linux-x86_64.rpm">Linux RPM<small>x64</small></a>
+          <a class="quiet" href="https://github.com/bennix/Zention/releases/latest/download/Zention-0.1.15-linux-aarch64.rpm">Linux RPM<small>arm64</small></a>
         </div>
-        <p class="note">macOS 安装包使用 Developer ID 签名，并经过 Apple 公证。笔记默认只在本机，密钥和 GitHub token 也只加密保存在这台电脑上。</p>
+        <p class="note">macOS 安装包使用 Developer ID 签名，并经过 Apple 公证。笔记默认只在本机，密钥和 GitHub token 也只加密保存在这台电脑上。页面：<a href="https://bennix.github.io/Zention/">bennix.github.io/Zention</a></p>
       </section>
     </main>
     <section class="features">
       <h2>这一版能做什么</h2>
+
+      <h2 class="sub">写作与版面</h2>
       <article class="wide">
         <h3>先写在本机</h3>
-        <p>每一页都是 Markdown，存在这台电脑的应用数据里。不登录也能写。公式、图片、代码和正文在同一页，导出时可以另存为 Markdown 或 PDF。界面有简体中文，也可以换成繁体、英文、日文和其他语言。</p>
+        <p>每一页都是 Markdown，存在这台电脑的应用数据里。不登录也能写。公式、图片、音视频、代码和正文在同一页，导出时可另存为 Markdown 或 PDF。界面有简体中文，也可换成繁体、英文、日文和其他语言。</p>
       </article>
       <article>
         <h3>斜杠就能插入</h3>
-        <p>输入 / 可以插入标题、列表、待办、引用、表格和分割线。代码块会按语言上色。Mermaid 写完后画成图。本地图片和网络图片都能放进来。设置里可以扫描 assets：会显示读笔记和核对图片的进度与速度，未使用的本地图片会移到废纸篓，而不是直接删掉，之后还能从废纸篓恢复。</p>
+        <p>输入 / 可插入标题、列表、待办、引用、表格、分割线、目录、分栏、折叠标题、标签页和按钮。代码块按语言上色；Mermaid 写完后画成图。本地图片、网络图片、音频和 MP4 都能放进来。</p>
+      </article>
+      <article>
+        <h3>AI 辅助建 Markdown 表</h3>
+        <p>斜杠选「AI 表格」，用自然语言说明列名和内容，模型只返回一张可用的 Markdown 表并插入当前位置。写任务清单、对照表、周计划时不必手搓表头。</p>
       </article>
       <article class="wide">
         <h3>Markdown 表格跟着光标走</h3>
-        <p>光标在表格里时，工具条浮在这张表的上方；上面放不下就改到下方，滚动时跟着走。可以在上方或下方加行，在左侧或右侧加列，也可以删掉当前行或当前列。按住 Shift 点选相邻单元格后，可以合并；已经合并的格子可以再拆开。表头行可以开关。列宽可以拖。整张表可以删：点工具条上的「删除表格」，或先点选整张表再按 Delete。</p>
+        <p>光标在表格里时，工具条浮在表上方；放不下就改到下方，滚动时跟着走。可上下加行、左右加列，也可删行删列。按住 Shift 点选相邻单元格后可合并，已合并的可再拆开。表头可开关，列宽可拖。整张表可用工具条删除，或先点选再按 Delete。</p>
       </article>
-      <article class="wide">
-        <h3>数据库的每一行仍是一篇笔记</h3>
-        <p>侧栏可以新建数据库。每一行是一篇独立页面，点「打开」就回到完整正文。属性可以是文本、数字、单选、多选、勾选或日期。同一份数据有表格和看板两种看法。看板按一个单选属性分列，把卡片拖到另一列就会改掉那个值。筛选支持包含、等于和为空，只作用在当前视图。不需要的行可以在表格末尾或看板卡片上删除。</p>
+      <article>
+        <h3>折叠标题可改、字号跟级别走</h3>
+        <p>折叠标题 1 / 2 / 3 的标题可直接点进输入框修改。展示字号分别对应正文 H1、H2、H3。左侧箭头只负责展开与收起，不会和改标题抢操作。</p>
       </article>
-      <article class="wide">
-        <h3>建库和筛选可以让 AI 起草</h3>
-        <p>新建数据库时可以先选一个写好的指令：任务看板、阅读清单、客户跟进、会议纪要或习惯打卡。指令可以改，再生成标题、属性和示例行；也可以直接建一个空白库。打开已有的库之后，AI 可以调整属性、只补全空着的字段、生成示例行，或按你的描述改筛选。筛选条上还有单独的「AI 筛选」。模型返回的结构会先按现有属性规则检查，对不上的内容不会写入。</p>
+      <article>
+        <h3>目录、分栏、标签与按钮</h3>
+        <p>目录块可列出本页标题，点链接会滚到正文并短暂高亮；也可用 AI 根据正文补大纲。两栏或三栏分栏、折叠块、标签页把长笔记拆开。按钮可设文案，并指定跳转到其他笔记、外链或本页某个标题；未设链接时仍跳到同页第一个标题。</p>
       </article>
       <article>
         <h3>公式可以改，也可以认</h3>
-        <p>行内公式和公式块点开就能改。也可以贴一张公式截图，让它写成公式；或者用一句话描述，让 AI 把公式写进笔记。</p>
+        <p>行内公式和公式块点开就能改。也可贴公式截图让它写成公式，或用一句话描述，让 AI 把公式写进笔记。</p>
       </article>
       <article>
+        <h3>音视频就地播放</h3>
+        <p>斜杠插入音频或视频后，文件拷进工作区的 media 目录，正文里用原生控件播放。路径写在笔记里，和图片一样可随 GitHub 一起走。</p>
+      </article>
+
+      <h2 class="sub">数据库</h2>
+      <article class="wide">
+        <h3>每一行仍是一篇笔记</h3>
+        <p>侧栏可新建数据库。每一行是一篇独立页面，点开就回到完整正文。属性可以是文本、数字、单选、多选、勾选、日期或图片。图片属性可选本地图，画廊和看板会用首个图片属性做封面。</p>
+      </article>
+      <article class="wide">
+        <h3>多种看法，一张数据</h3>
+        <p>同一份数据可在表格、看板、画廊、列表、日历、时间线之间切换。看板按单选属性分列，拖卡片就会改属性。日历和时间线按日期属性排布。还可做柱状、折线、环图和数字汇总，按分组属性聚合计数或求和。</p>
+      </article>
+      <article class="wide">
+        <h3>建库和筛选可以让 AI 起草</h3>
+        <p>新建时可选任务看板、阅读清单、客户跟进、会议纪要或习惯打卡等模板；也可空白开库。已有库可用 AI 调整属性（含图片属性）、补空字段、生成示例行，或按描述改筛选。筛选支持包含、等于和为空。模型返回的结构会先按规则检查，对不上的不会写入。</p>
+      </article>
+
+      <h2 class="sub">组织、同步与更新</h2>
+      <article>
         <h3>拖块之前先看到位置</h3>
-        <p>抓住左侧把手拖动时，松手之前会画出插入线。不按修饰键是移动。按住 Ctrl 或 Option 是复制到那条线，线上会出现加号。复制不会删掉原来的块。</p>
+        <p>抓住左侧把手拖动时，松手前会画出插入线。不按修饰键是移动；按住 Ctrl 或 Option 是复制到那条线，线上会出现加号。</p>
       </article>
       <article>
         <h3>侧边栏收成文件夹</h3>
-        <p>把一条笔记拖到另一条上面，它就变成子笔记。接收它的那一条会标成文件夹，侧边栏可以展开。分组把笔记归到一组，标签用来筛选。这些结构会和正文一起同步。</p>
+        <p>把一条笔记拖到另一条上面，它就变成子笔记。接收方会标成文件夹。分组和标签用来归类筛选，结构和正文一起同步。</p>
       </article>
       <article>
         <h3>笔记之间可以跳</h3>
-        <p>链接可以指向另一篇笔记，点一下就打开。向 AI 提问时，用 @ 带上已有笔记，它会连同那一页一起看。选中一段后可以润色、缩短、扩写或翻译，也可以按这段在上方或下方插图。</p>
+        <p>链接可指向另一篇笔记。向 AI 提问时用 @ 带上已有笔记。选中一段后可润色、缩短、扩写或翻译，也可按这段在上方或下方插图。</p>
+      </article>
+      <article class="wide">
+        <h3>同步前必须选边</h3>
+        <p>和 GitHub 同步前会问方向：远程覆盖本地，或本地覆盖远程。数据库的属性、视图、筛选和字段写在页面标记里，跟这一页一起走。同步上去的库文件里还有一张可读表，拉回时以标记为准。图片在 assets，音视频在 media，两边都会推送与拉取。可新建私有仓库或绑定已有仓库。Token 需要 repo 权限，只加密留在本机。</p>
       </article>
       <article>
-        <h3>同步前必须选边</h3>
-        <p>和 GitHub 同步前会问方向：远程覆盖本地，或本地覆盖远程。数据库的属性、视图、筛选和每一行的字段写在页面标记里，会跟着这一页一起走。同步上去的数据库文件里还有一张可读的表，拉回来时以标记为准，不会把那张表写进正文。可以新建私有仓库，也可以绑定已有仓库。Token 需要 repo 权限，只加密留在本机。登录可以用网页 token，也可以用本机的 gh。</p>
+        <h3>未使用的本地文件可清到废纸篓</h3>
+        <p>设置里可扫描 assets 与 media：显示读笔记、核对文件的进度与速度。未引用的图片和音视频会移到废纸篓，而不是直接删掉。</p>
       </article>
       <article>
         <h3>更新跟着代理走</h3>
-        <p>0.1.13 起，检查更新和下载安装包使用设置里保存的代理。没填时会尝试系统代理，留空则直接连接。macOS 的「Zention」菜单、Windows 和 Linux 的「更新」菜单里都有「检查更新」。下载完成后，菜单和设置里都可以「重启并升级」。</p>
+        <p>检查更新和下载安装包使用设置里保存的代理。没填时会尝试系统代理。macOS 的「Zention」菜单、Windows 和 Linux 的「更新」菜单里都有「检查更新」。下载完成后可「重启并升级」。</p>
       </article>
       <article class="wide">
         <h3>代理管的是出门的请求</h3>
-        <p>同一条代理地址同时用于 AI 对话、生图、GitHub 同步和检查更新。支持 HTTP 和 SOCKS，例如 127.0.0.1:7890。打开设置时会尝试填入系统代理，保存之后才生效。笔记本身不会因为开了代理就被上传。</p>
+        <p>同一条代理同时用于 AI 对话、生图、GitHub 同步和检查更新。支持 HTTP 和 SOCKS。笔记本身不会因为开了代理就被上传。</p>
       </article>
     </section>
-    <footer>Zention 0.1.14 · <a href="https://github.com/bennix/Zention/releases/latest">全部下载</a></footer>
+    <footer>Zention 0.1.15 · <a href="https://github.com/bennix/Zention/releases/latest">全部下载</a></footer>
   </div>
 </body>
 </html>
